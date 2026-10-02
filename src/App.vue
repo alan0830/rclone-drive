@@ -1243,24 +1243,56 @@ onUnmounted(() => {
         <div class="sub-bar">
           <div class="sub-title-group">
             <h2>檔案同步與差異比對 (RcloneView Plus)</h2>
-            <p>可圖形化選擇本機或雲端路徑、進行雙向比對、狀態篩選 (Display Filter)、單檔複製與全量鏡像同步</p>
+            <p>設定來源與目的路徑，執行雙向內容比對，支援狀態篩選 (Display Filter)、單檔複製、選取傳輸與定時排程</p>
           </div>
         </div>
 
-        <div class="sync-panel-grid">
-          <!-- Setup Card -->
-          <div class="glass-card">
-            <h3 class="card-title">
+        <!-- Upper: Task Setup Card (上下排列之上方卡片) -->
+        <div class="glass-card setup-card-compact">
+          <div class="setup-compact-header">
+            <div class="setup-compact-title">
               <FolderSync class="card-title-icon" />
-              <span>任務路徑設定</span>
-            </h3>
+              <span>任務路徑與參數設定</span>
+            </div>
+            <div class="setup-compact-actions">
+              <button
+                class="btn btn-secondary"
+                @click="handleCheckDiff"
+                :disabled="syncForm.isChecking || syncForm.isRunning || isPrerequisiteMissing"
+              >
+                <FileCheck class="btn-icon" :class="{ 'spin-anim': syncForm.isChecking }" />
+                <span>{{ syncForm.isChecking ? '比對中...' : '🔍 比對兩端差異 (Check Diff)' }}</span>
+              </button>
 
-            <!-- Source Input Group -->
-            <div class="form-group">
+              <button
+                class="btn btn-primary"
+                @click="handleRunSync"
+                :disabled="syncForm.isRunning || syncForm.isChecking || isPrerequisiteMissing"
+              >
+                <Play class="btn-icon" :class="{ 'spin-anim': syncForm.isRunning }" />
+                <span>{{ syncForm.isRunning ? '執行中...' : '⚡ 立即開始同步/備份' }}</span>
+              </button>
+
+              <button
+                class="btn btn-schedule"
+                @click="openScheduleFromSync"
+                :disabled="!syncForm.source || !syncForm.dest"
+                title="直接將此任務設定儲存為背景定時排程"
+              >
+                <CalendarClock class="btn-icon" />
+                <span>🕒 直接加入排程任務</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Path Inputs Row -->
+          <div class="setup-inputs-grid">
+            <!-- Source Input -->
+            <div class="form-group-compact">
               <div class="field-label-row">
                 <label class="field-label">來源路徑 (Source)</label>
                 <div class="quick-links-group" v-if="remotes.length > 0">
-                  <span class="quick-link-label">快速帶入雲端:</span>
+                  <span class="quick-link-label">快速雲端:</span>
                   <button
                     v-for="r in remotes.slice(0, 3)"
                     :key="r.name"
@@ -1272,7 +1304,6 @@ onUnmounted(() => {
                   </button>
                 </div>
               </div>
-
               <div class="input-with-actions">
                 <input
                   type="text"
@@ -1297,15 +1328,14 @@ onUnmounted(() => {
                   <span>選擇雲端</span>
                 </button>
               </div>
-              <span class="field-hint">點選右側「瀏覽本機」直接選取資料夾，免手動複製貼上！</span>
             </div>
 
-            <!-- Destination Input Group -->
-            <div class="form-group">
+            <!-- Destination Input -->
+            <div class="form-group-compact">
               <div class="field-label-row">
                 <label class="field-label">目的路徑 (Destination)</label>
                 <div class="quick-links-group" v-if="remotes.length > 0">
-                  <span class="quick-link-label">快速帶入雲端:</span>
+                  <span class="quick-link-label">快速雲端:</span>
                   <button
                     v-for="r in remotes.slice(0, 3)"
                     :key="r.name"
@@ -1317,7 +1347,6 @@ onUnmounted(() => {
                   </button>
                 </div>
               </div>
-
               <div class="input-with-actions">
                 <input
                   type="text"
@@ -1343,343 +1372,344 @@ onUnmounted(() => {
                 </button>
               </div>
             </div>
+          </div>
 
-            <!-- Task Action Mode -->
-            <div class="form-group">
-              <label class="field-label">任務動作模式</label>
-              <select v-model="syncForm.action" class="modal-input">
-                <option value="copy">Copy (增量複製備份: 推薦！僅複製新檔/變更檔，絕不刪除目的端檔案)</option>
-                <option value="sync">Sync (單向鏡像同步: 目的端檔案會完全與來源一致，目的端多出的舊檔將被刪除)</option>
-                <option value="move">Move (單向移動傳輸: 檔案成功複製到目的端後，將自來源端刪除)</option>
+          <!-- Secondary Options Row (Action, Filters, Auto-Schedule) -->
+          <div class="setup-options-row">
+            <div class="option-item flex-2">
+              <label class="field-label-compact">任務模式</label>
+              <select v-model="syncForm.action" class="modal-input-compact">
+                <option value="copy">Copy (增量複製備份: 推薦！僅複製新檔/變更檔，不刪除目的端檔案)</option>
+                <option value="sync">Sync (單向鏡像同步: 目的端檔案會完全與來源一致)</option>
+                <option value="move">Move (移動傳輸: 檔案成功複製到目的端後自來源端刪除)</option>
               </select>
             </div>
 
-            <!-- Exclude Filters -->
-            <div class="form-group">
-              <label class="field-label">排除檔案過濾規則 (Filter / Exclude)</label>
+            <div class="option-item flex-3">
+              <label class="field-label-compact">排除過濾 (Filter / Exclude)</label>
               <input
                 type="text"
                 v-model="syncForm.excludeFilter"
-                class="modal-input"
-                placeholder="例如：*.tmp, *.bak, thumbs.db, .DS_Store, node_modules/** (多個規則以逗號分隔)"
+                class="modal-input-compact"
+                placeholder="例如：*.tmp, *.bak, thumbs.db, node_modules/**"
               />
-              <div class="quick-filters-row">
-                <span class="quick-filter-tag" @click="syncForm.excludeFilter = (syncForm.excludeFilter ? syncForm.excludeFilter + ', ' : '') + '*.tmp'">+ *.tmp</span>
-                <span class="quick-filter-tag" @click="syncForm.excludeFilter = (syncForm.excludeFilter ? syncForm.excludeFilter + ', ' : '') + 'thumbs.db'">+ thumbs.db</span>
-                <span class="quick-filter-tag" @click="syncForm.excludeFilter = (syncForm.excludeFilter ? syncForm.excludeFilter + ', ' : '') + '.DS_Store'">+ .DS_Store</span>
-                <span class="quick-filter-tag" @click="syncForm.excludeFilter = (syncForm.excludeFilter ? syncForm.excludeFilter + ', ' : '') + 'node_modules/**'">+ node_modules/**</span>
-              </div>
             </div>
 
-            <!-- Schedule Auto Option Checkbox -->
-            <div class="checkbox-row mb-3" @click="syncForm.autoAddToScheduler = !syncForm.autoAddToScheduler">
+            <div class="option-item flex-2 checkbox-center" @click="syncForm.autoAddToScheduler = !syncForm.autoAddToScheduler">
               <div class="custom-checkbox" :class="{ checked: syncForm.autoAddToScheduler }">
                 <Check v-if="syncForm.autoAddToScheduler" class="check-icon" />
               </div>
-              <span class="checkbox-label text-cyan font-medium">
-                執行同步時，同時將此任務直接加入背景定時排程 (每 60 分鐘自動執行)
+              <span class="checkbox-label text-cyan font-medium text-xs">
+                同步成功後自動加入定時排程 (每 60 分鐘)
               </span>
             </div>
+          </div>
+        </div>
 
-            <!-- Action Buttons -->
-            <div class="action-buttons-row">
+        <!-- Lower: RcloneView Full Width Compare Card (上下排列之全寬比對檢視視窗) -->
+        <div class="glass-card rcloneview-main-card">
+          <!-- Top Header: Compare Status & Reload -->
+          <div class="rcloneview-header">
+            <div class="rcloneview-title-group">
+              <h3 class="rcloneview-title">Compare (比對檢視視窗)</h3>
+              <span v-if="syncForm.diffResult" class="rcloneview-count-badge">
+                All data retrieved ({{ syncForm.diffResult.items ? syncForm.diffResult.items.length : 0 }} / {{ syncForm.diffResult.items ? syncForm.diffResult.items.length : 0 }} compared)
+              </span>
+            </div>
+            <div class="rcloneview-header-right">
               <button
-                class="btn btn-secondary btn-lg"
-                @click="handleCheckDiff"
-                :disabled="syncForm.isChecking || syncForm.isRunning || isPrerequisiteMissing"
-              >
-                <FileCheck class="btn-icon" :class="{ 'spin-anim': syncForm.isChecking }" />
-                <span>{{ syncForm.isChecking ? '正在精確比對中...' : '比對兩端差異 (Check Diff)' }}</span>
-              </button>
-
-              <button
-                class="btn btn-primary btn-lg"
-                @click="handleRunSync"
-                :disabled="syncForm.isRunning || syncForm.isChecking || isPrerequisiteMissing"
-              >
-                <Play class="btn-icon" :class="{ 'spin-anim': syncForm.isRunning }" />
-                <span>{{ syncForm.isRunning ? '任務執行中...' : '立即開始同步/備份' }}</span>
-              </button>
-
-              <button
-                class="btn btn-schedule btn-lg"
+                v-if="syncForm.diffResult"
+                class="btn btn-xs btn-schedule-outline"
                 @click="openScheduleFromSync"
-                :disabled="!syncForm.source || !syncForm.dest"
-                title="直接將目前的同步設定（來源、目的、動作與排除）建立為定時排程任務"
+                title="比對無誤，直接將此任務建立為背景定時排程"
               >
-                <CalendarClock class="btn-icon" />
-                <span>直接加入排程任務</span>
+                <CalendarClock class="btn-icon-xs" />
+                <span>建立為排程任務</span>
+              </button>
+              <button
+                class="btn btn-xs btn-outline"
+                @click="handleCheckDiff"
+                :disabled="syncForm.isChecking || !syncForm.source || !syncForm.dest"
+                title="重新比對兩端資料夾內容"
+              >
+                <RefreshCw class="btn-icon-xs" :class="{ 'spin-anim': syncForm.isChecking }" />
+                <span>{{ syncForm.isChecking ? '比對中...' : 'Reload (重新比對)' }}</span>
               </button>
             </div>
           </div>
 
-          <!-- RcloneView Plus Compare & Diff Report Card -->
-          <div class="glass-card compare-card">
-            <div class="compare-header">
-              <div class="compare-header-title">
-                <FileCheck class="card-title-icon text-cyan" />
-                <span>差異比對報告 (RcloneView 檢視模式)</span>
-              </div>
-              <div class="compare-header-actions" v-if="syncForm.diffResult">
-                <button
-                  class="btn btn-xs btn-schedule-outline"
-                  @click="openScheduleFromSync"
-                  title="比對無誤，直接將此任務建立為背景定時排程"
-                >
-                  <CalendarClock class="btn-icon-xs" />
-                  <span>建立為排程任務</span>
-                </button>
-                <button
-                  class="btn btn-xs btn-outline"
-                  @click="handleCheckDiff"
-                  :disabled="syncForm.isChecking"
-                  title="重新比對兩端"
-                >
-                  <RefreshCw class="btn-icon-xs" :class="{ 'spin-anim': syncForm.isChecking }" />
-                  <span>重新比對 (Reload)</span>
-                </button>
-              </div>
+          <!-- RcloneView Blue Path Indicator Bar (如 RcloneView 截圖之頂部路徑條) -->
+          <div class="rcloneview-path-header">
+            <div class="path-col path-src" :title="syncForm.source || '未設定來源路徑'">
+              <span class="path-star">⭐</span>
+              <span class="path-name">{{ syncForm.source || '請於上方指定來源路徑 (Source)' }}</span>
+              <Folder class="path-icon-right" />
             </div>
-
-            <!-- RcloneView Compare Tool Area -->
-            <div v-if="syncForm.diffResult" class="rcloneview-container">
-              <!-- Path Indicators -->
-              <div class="compare-path-bar">
-                <div class="path-badge source-path" :title="syncForm.source">
-                  <Folder class="path-badge-icon" />
-                  <span class="path-badge-role">來源 (Source):</span>
-                  <span class="path-badge-text">{{ syncForm.source }}</span>
-                </div>
-                <div class="path-badge-divider">
-                  <ArrowRight class="path-arrow-icon" />
-                </div>
-                <div class="path-badge dest-path" :title="syncForm.dest">
-                  <Folder class="path-badge-icon" />
-                  <span class="path-badge-role">目的 (Dest):</span>
-                  <span class="path-badge-text">{{ syncForm.dest }}</span>
-                </div>
-              </div>
-
-              <!-- RcloneView Display Filter Bar (如 RcloneView 截圖中的 Display: ➡️ ⬅️ = ≠ !) -->
-              <div class="rcloneview-toolbar">
-                <div class="display-toggle-group">
-                  <span class="display-label">Display:</span>
-
-                  <!-- Source Only (➡️ 來源待備份) -->
-                  <button
-                    class="toggle-btn toggle-src"
-                    :class="{ active: syncForm.filterModes.source_only }"
-                    @click="toggleFilterMode('source_only')"
-                    title="顯示僅在來源端的檔案 (待複製到目標端)"
-                  >
-                    <ArrowRight class="toggle-icon text-green" />
-                    <span>來源待同步 ({{ syncForm.diffResult.total_source_files || 0 }})</span>
-                  </button>
-
-                  <!-- Dest Only (⬅️ 目的端多出) -->
-                  <button
-                    class="toggle-btn toggle-dest"
-                    :class="{ active: syncForm.filterModes.dest_only }"
-                    @click="toggleFilterMode('dest_only')"
-                    title="顯示僅在目的端的檔案 (目標端多出)"
-                  >
-                    <ArrowLeft class="toggle-icon text-blue" />
-                    <span>目的端多出 ({{ syncForm.diffResult.total_dest_files || 0 }})</span>
-                  </button>
-
-                  <!-- Different (≠ 內容或時間差異) -->
-                  <button
-                    class="toggle-btn toggle-diff"
-                    :class="{ active: syncForm.filterModes.different }"
-                    @click="toggleFilterMode('different')"
-                    title="顯示兩端都存在但內容或修改時間不同的檔案"
-                  >
-                    <SlidersHorizontal class="toggle-icon text-purple" />
-                    <span>內容差異 ({{ syncForm.diffResult.total_different || 0 }})</span>
-                  </button>
-
-                  <!-- Equal (= 完全相同) -->
-                  <button
-                    class="toggle-btn toggle-eq"
-                    :class="{ active: syncForm.filterModes.equal }"
-                    @click="toggleFilterMode('equal')"
-                    title="顯示兩端完全相同的檔案"
-                  >
-                    <Equal class="toggle-icon text-neutral" />
-                    <span>完全一致 ({{ syncForm.diffResult.total_equal || 0 }})</span>
-                  </button>
-
-                  <!-- Error (! 異常) -->
-                  <button
-                    v-if="syncForm.diffResult.total_error > 0"
-                    class="toggle-btn toggle-err"
-                    :class="{ active: syncForm.filterModes.error }"
-                    @click="toggleFilterMode('error')"
-                    title="顯示讀取失敗或雜湊異常的檔案"
-                  >
-                    <AlertTriangle class="toggle-icon text-red" />
-                    <span>異常 ({{ syncForm.diffResult.total_error || 0 }})</span>
-                  </button>
-                </div>
-
-                <!-- Batch Actions & Search Filter -->
-                <div class="toolbar-right">
-                  <div class="search-input-box">
-                    <Search class="search-icon" />
-                    <input
-                      type="text"
-                      v-model="syncForm.searchKeyword"
-                      class="search-input"
-                      placeholder="快速搜尋檔名或路徑..."
-                    />
-                  </div>
-
-                  <button
-                    class="btn btn-sm btn-emerald"
-                    @click="handleCopySelected"
-                    :disabled="syncForm.selectedItems.size === 0 || syncForm.isCopyingSelected"
-                    title="將勾選的檔案從來源複製到目標端"
-                  >
-                    <Copy class="btn-icon-xs" />
-                    <span>複製選取 ({{ syncForm.selectedItems.size }}) ➡️</span>
-                  </button>
-                </div>
-              </div>
-
-              <!-- Comparison Table -->
-              <div class="compare-table-wrapper">
-                <table class="compare-table">
-                  <thead>
-                    <tr>
-                      <th class="th-checkbox">
-                        <input
-                          type="checkbox"
-                          @change="toggleSelectAllVisible"
-                          :checked="filteredDiffItems.length > 0 && filteredDiffItems.every(i => syncForm.selectedItems.has(i.path))"
-                          title="全選 / 取消全選可見項目"
-                        />
-                      </th>
-                      <th class="th-source">來源檔案 (Source)</th>
-                      <th class="th-status">狀態指示</th>
-                      <th class="th-dest">目的端對應 (Destination)</th>
-                      <th class="th-action">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="item in filteredDiffItems"
-                      :key="item.path"
-                      class="compare-row"
-                      :class="{
-                        'row-src-only': item.status === 'source_only',
-                        'row-dest-only': item.status === 'dest_only',
-                        'row-diff': item.status === 'different',
-                        'row-equal': item.status === 'equal',
-                        'row-error': item.status === 'error',
-                        'row-selected': syncForm.selectedItems.has(item.path)
-                      }"
-                    >
-                      <td class="td-checkbox">
-                        <input
-                          type="checkbox"
-                          :checked="syncForm.selectedItems.has(item.path)"
-                          @change="toggleItemSelect(item.path)"
-                        />
-                      </td>
-
-                      <!-- Source side -->
-                      <td class="td-source">
-                        <div class="file-cell" :class="{ 'file-muted': item.status === 'dest_only' }">
-                          <span class="file-name" :title="item.path">{{ item.path }}</span>
-                        </div>
-                      </td>
-
-                      <!-- Status Middle Indicator (like RcloneView middle column) -->
-                      <td class="td-status">
-                        <div class="status-indicator-badge" :class="item.status">
-                          <template v-if="item.status === 'source_only'">
-                            <ArrowRight class="indicator-icon" />
-                            <span>待同步 ➡️</span>
-                          </template>
-                          <template v-else-if="item.status === 'dest_only'">
-                            <ArrowLeft class="indicator-icon" />
-                            <span>目的多出 ⬅️</span>
-                          </template>
-                          <template v-else-if="item.status === 'different'">
-                            <SlidersHorizontal class="indicator-icon" />
-                            <span>差異 ≠</span>
-                          </template>
-                          <template v-else-if="item.status === 'equal'">
-                            <Equal class="indicator-icon" />
-                            <span>一致 ＝</span>
-                          </template>
-                          <template v-else-if="item.status === 'error'">
-                            <AlertTriangle class="indicator-icon" />
-                            <span>異常 ❗</span>
-                          </template>
-                        </div>
-                      </td>
-
-                      <!-- Dest side -->
-                      <td class="td-dest">
-                        <div class="file-cell" :class="{ 'file-muted': item.status === 'source_only' }">
-                          <span class="file-name" :title="item.path">
-                            {{ item.status === 'source_only' ? '(目的端尚未存在此檔)' : item.path }}
-                          </span>
-                        </div>
-                      </td>
-
-                      <!-- Action Button -->
-                      <td class="td-action">
-                        <button
-                          v-if="item.status === 'source_only' || item.status === 'different'"
-                          class="btn-row-action"
-                          @click="handleCopySingleFile(item.path)"
-                          :disabled="syncForm.isCopyingSelected"
-                          title="單獨複製此檔案至目的端"
-                        >
-                          <ArrowRight class="row-action-icon" />
-                          <span>複製 ➡️</span>
-                        </button>
-                      </td>
-                    </tr>
-
-                    <!-- Empty state inside filtered items -->
-                    <tr v-if="filteredDiffItems.length === 0">
-                      <td colspan="5" class="empty-diff-td">
-                        <div class="empty-diff-state">
-                          <CheckCircle2 class="empty-icon text-emerald" />
-                          <span>在目前篩選條件下無符合項目</span>
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <!-- RcloneView Status Bar -->
-              <div class="compare-footer-bar">
-                <span>
-                  共 {{ syncForm.diffResult.items ? syncForm.diffResult.items.length : 0 }} 個項目已比對
-                  （顯示中: {{ filteredDiffItems.length }} 項 | 已勾選: {{ syncForm.selectedItems.size }} 項）
-                </span>
-                <span class="footer-msg">{{ syncForm.diffResult.message }}</span>
-              </div>
-            </div>
-
-            <!-- Empty State when Diff not yet checked -->
-            <div v-else class="diff-empty-placeholder">
-              <FileCheck class="empty-placeholder-icon" />
-              <h4>尚未執行差異比對</h4>
-              <p>設定好來源與目的路徑後，點擊「比對兩端差異 (Check Diff)」即可檢視詳細差異報表</p>
-            </div>
-
-            <!-- Task Log Box -->
-            <div class="task-log-box">
-              <div class="log-header">即時執行日誌</div>
-              <pre class="log-content">{{ syncForm.taskLog || '尚未執行任務，點選「立即開始同步/備份」或「複製選取」即可檢視進度。' }}</pre>
+            <div class="path-col path-dest" :title="syncForm.dest || '未設定目的路徑'">
+              <span class="path-triangle">☁️</span>
+              <span class="path-name">{{ syncForm.dest || '請於上方指定目的路徑 (Destination)' }}</span>
+              <Folder class="path-icon-right" />
             </div>
           </div>
+
+          <!-- RcloneView Toolbar: Display Filters, Actions, Search (如同截圖所示) -->
+          <div class="rcloneview-action-toolbar">
+            <!-- Display Toggles -->
+            <div class="display-group">
+              <span class="toolbar-label">Display:</span>
+              <button
+                class="rv-toggle-btn toggle-src"
+                :class="{ active: syncForm.filterModes.source_only }"
+                @click="toggleFilterMode('source_only')"
+                title="來源獨有 (待複製至目標端 ➡️)"
+              >
+                <ArrowRight class="rv-icon text-green" />
+                <span>來源獨有 ({{ syncForm.diffResult?.total_source_files || 0 }})</span>
+              </button>
+
+              <button
+                class="rv-toggle-btn toggle-dest"
+                :class="{ active: syncForm.filterModes.dest_only }"
+                @click="toggleFilterMode('dest_only')"
+                title="目的端多出 (⬅️)"
+              >
+                <ArrowLeft class="rv-icon text-blue" />
+                <span>目的多出 ({{ syncForm.diffResult?.total_dest_files || 0 }})</span>
+              </button>
+
+              <button
+                class="rv-toggle-btn toggle-eq"
+                :class="{ active: syncForm.filterModes.equal }"
+                @click="toggleFilterMode('equal')"
+                title="兩端完全一致 (＝)"
+              >
+                <Equal class="rv-icon text-neutral" />
+                <span>完全一致 ({{ syncForm.diffResult?.total_equal || 0 }})</span>
+              </button>
+
+              <button
+                class="rv-toggle-btn toggle-diff"
+                :class="{ active: syncForm.filterModes.different }"
+                @click="toggleFilterMode('different')"
+                title="檔案內容或時間不同 (≠)"
+              >
+                <SlidersHorizontal class="rv-icon text-purple" />
+                <span>內容差異 ({{ syncForm.diffResult?.total_different || 0 }})</span>
+              </button>
+
+              <button
+                v-if="syncForm.diffResult?.total_error > 0"
+                class="rv-toggle-btn toggle-err"
+                :class="{ active: syncForm.filterModes.error }"
+                @click="toggleFilterMode('error')"
+                title="讀取或雜湊異常 (❗)"
+              >
+                <AlertTriangle class="rv-icon text-red" />
+                <span>異常 ({{ syncForm.diffResult?.total_error || 0 }})</span>
+              </button>
+            </div>
+
+            <!-- Middle Batch Actions (Copy Selected) -->
+            <div class="actions-group">
+              <button
+                class="btn btn-sm btn-emerald"
+                @click="handleCopySelected"
+                :disabled="syncForm.selectedItems.size === 0 || syncForm.isCopyingSelected"
+                title="將勾選的檔案從來源複製到目標端"
+              >
+                <Copy class="btn-icon-xs" />
+                <span>Copy ➡️ ({{ syncForm.selectedItems.size }})</span>
+              </button>
+            </div>
+
+            <!-- Right: Search Filter -->
+            <div class="search-group ml-auto">
+              <div class="rv-search-box">
+                <Search class="rv-search-icon" />
+                <input
+                  type="text"
+                  v-model="syncForm.searchKeyword"
+                  class="rv-search-input"
+                  placeholder="Find Folder/File..."
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- RcloneView Classical Two-Column Table -->
+          <div class="rcloneview-table-container">
+            <table class="rv-table">
+              <thead>
+                <tr class="rv-thead-row">
+                  <!-- Source Side Headers -->
+                  <th class="col-chk">
+                    <input
+                      type="checkbox"
+                      @change="toggleSelectAllVisible"
+                      :checked="filteredDiffItems.length > 0 && filteredDiffItems.every(i => syncForm.selectedItems.has(i.path))"
+                      title="全選 / 取消全選可見項目"
+                    />
+                  </th>
+                  <th class="col-src-name">Name (來源端)</th>
+                  <th class="col-src-size">Size</th>
+                  <th class="col-src-date">Date Modified</th>
+
+                  <!-- Center Direction Indicator Header -->
+                  <th class="col-dir">Dir</th>
+
+                  <!-- Destination Side Headers -->
+                  <th class="col-dst-name">Name (目的端)</th>
+                  <th class="col-dst-size">Size</th>
+                  <th class="col-dst-date">Date Modified</th>
+
+                  <!-- Quick Action Header -->
+                  <th class="col-act">操作</th>
+                </tr>
+              </thead>
+
+              <!-- Diff Items List -->
+              <tbody v-if="syncForm.diffResult && filteredDiffItems.length > 0">
+                <tr
+                  v-for="item in filteredDiffItems"
+                  :key="item.path"
+                  class="rv-row"
+                  :class="{
+                    'rv-row-selected': syncForm.selectedItems.has(item.path),
+                    'status-src-only': item.status === 'source_only',
+                    'status-dst-only': item.status === 'dest_only',
+                    'status-diff': item.status === 'different',
+                    'status-equal': item.status === 'equal'
+                  }"
+                  @click="toggleItemSelect(item.path)"
+                >
+                  <!-- Checkbox -->
+                  <td class="col-chk" @click.stop>
+                    <input
+                      type="checkbox"
+                      :checked="syncForm.selectedItems.has(item.path)"
+                      @change="toggleItemSelect(item.path)"
+                    />
+                  </td>
+
+                  <!-- Source: Name -->
+                  <td class="col-src-name">
+                    <div class="rv-file-entry" :class="{ 'entry-empty': item.status === 'dest_only' }">
+                      <Folder v-if="item.path.endsWith('/')" class="entry-icon text-amber" />
+                      <span class="entry-name" :title="item.path">{{ item.path }}</span>
+                    </div>
+                  </td>
+
+                  <!-- Source: Size -->
+                  <td class="col-src-size">
+                    <span v-if="item.size_src">{{ item.size_src }}</span>
+                    <span v-else class="text-muted">-</span>
+                  </td>
+
+                  <!-- Source: Date Modified -->
+                  <td class="col-src-date">
+                    <span v-if="item.mtime_src">{{ item.mtime_src }}</span>
+                    <span v-else class="text-muted">-</span>
+                  </td>
+
+                  <!-- Center: Direction Symbol (like RcloneView middle icons) -->
+                  <td class="col-dir" @click.stop>
+                    <div class="dir-icon-badge" :class="item.status">
+                      <ArrowRight v-if="item.status === 'source_only'" class="dir-icon text-green" title="來源獨有，待複製到目標端 ➡️" />
+                      <ArrowLeft v-else-if="item.status === 'dest_only'" class="dir-icon text-blue" title="目的端多出 ⬅️" />
+                      <SlidersHorizontal v-else-if="item.status === 'different'" class="dir-icon text-purple" title="兩端內容或時間差異 ≠" />
+                      <Equal v-else-if="item.status === 'equal'" class="dir-icon text-neutral" title="兩端完全一致 ＝" />
+                      <AlertTriangle v-else class="dir-icon text-red" title="異常 ❗" />
+                    </div>
+                  </td>
+
+                  <!-- Dest: Name -->
+                  <td class="col-dst-name">
+                    <div class="rv-file-entry" :class="{ 'entry-empty': item.status === 'source_only' }">
+                      <span v-if="item.status === 'source_only'" class="entry-placeholder">(目標端尚未存在此檔)</span>
+                      <template v-else>
+                        <Folder v-if="item.path.endsWith('/')" class="entry-icon text-amber" />
+                        <span class="entry-name" :title="item.path">{{ item.path }}</span>
+                      </template>
+                    </div>
+                  </td>
+
+                  <!-- Dest: Size -->
+                  <td class="col-dst-size">
+                    <span v-if="item.size_dest">{{ item.size_dest }}</span>
+                    <span v-else class="text-muted">-</span>
+                  </td>
+
+                  <!-- Dest: Date Modified -->
+                  <td class="col-dst-date">
+                    <span v-if="item.mtime_dest">{{ item.mtime_dest }}</span>
+                    <span v-else class="text-muted">-</span>
+                  </td>
+
+                  <!-- Quick Action Button -->
+                  <td class="col-act" @click.stop>
+                    <button
+                      v-if="item.status === 'source_only' || item.status === 'different'"
+                      class="btn-row-action"
+                      @click="handleCopySingleFile(item.path)"
+                      :disabled="syncForm.isCopyingSelected"
+                      title="單獨複製此檔案至目的端"
+                    >
+                      <span>複製 ➡️</span>
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+
+              <!-- Empty state inside Diff Table -->
+              <tbody v-else-if="syncForm.diffResult && filteredDiffItems.length === 0">
+                <tr>
+                  <td colspan="9" class="rv-empty-cell">
+                    <div class="rv-empty-box">
+                      <CheckCircle2 class="empty-icon text-emerald" />
+                      <span>在目前篩選條件下無符合項目（請嘗試開啟其他 Display 篩選按鈕或清除搜尋條件）</span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+
+              <!-- Empty state before diff execution -->
+              <tbody v-else>
+                <tr>
+                  <td colspan="9" class="rv-empty-cell placeholder-height">
+                    <div class="rv-empty-box">
+                      <FileCheck class="empty-placeholder-icon text-cyan" />
+                      <h4>尚未執行差異比對</h4>
+                      <p>請設定好上方來源與目的路徑後，點擊上方「🔍 比對兩端差異 (Check Diff)」按鈕</p>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- RcloneView Classical Status Bar (如截圖底部之統計列) -->
+          <div class="rcloneview-statusbar">
+            <div class="status-left">
+              <span>來源項目: {{ syncForm.diffResult?.total_source_files || 0 }} 待同步</span>
+            </div>
+            <div class="status-center">
+              <span class="selected-count-tag">
+                {{ syncForm.selectedItems.size }} item(s) selected.
+              </span>
+            </div>
+            <div class="status-right">
+              <span>目的端多出: {{ syncForm.diffResult?.total_dest_files || 0 }} 檔</span>
+            </div>
+          </div>
+
+          <!-- Collapsible Task Log Drawer -->
+          <details class="task-log-details" :open="Boolean(syncForm.taskLog)">
+            <summary class="log-summary">
+              <span>即時執行記錄與日誌</span>
+              <span class="log-summary-hint">{{ syncForm.isRunning ? '（任務正在執行中...）' : '' }}</span>
+            </summary>
+            <pre class="log-content-pre">{{ syncForm.taskLog || '尚未執行任務，點選「立即開始同步/備份」或「Copy ➡️」即可檢視進度。' }}</pre>
+          </details>
         </div>
       </section>
 
@@ -3567,86 +3597,214 @@ onUnmounted(() => {
   border-color: #34d399;
 }
 
-/* Path Indicator Bar */
-.compare-path-bar {
+/* --- RcloneView Classical Two-Column View & Compact Setup Styles --- */
+.setup-card-compact {
+  padding: 16px 20px;
+  margin-bottom: 14px;
+}
+
+.setup-compact-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.setup-compact-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(15, 23, 42, 0.7);
-  padding: 8px 12px;
-  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.setup-compact-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setup-inputs-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
   margin-bottom: 12px;
+}
+
+.form-group-compact {
+  display: flex;
+  flex-direction: column;
+}
+
+.setup-options-row {
+  display: flex;
+  gap: 14px;
+  align-items: flex-end;
+  background: rgba(15, 23, 42, 0.5);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
 }
 
-.path-badge {
+.option-item {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.path-badge-icon {
-  width: 14px;
-  height: 14px;
-  color: var(--accent-cyan);
-  flex-shrink: 0;
-}
+.flex-2 { flex: 2; }
+.flex-3 { flex: 3; }
 
-.path-badge-role {
+.field-label-compact {
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
+}
+
+.modal-input-compact {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+}
+
+.modal-input-compact:focus {
+  border-color: var(--accent-cyan);
+}
+
+.checkbox-center {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  cursor: pointer;
+  padding-top: 18px;
+}
+
+/* RcloneView Main Compare View (全寬卡片) */
+.rcloneview-main-card {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 480px;
+}
+
+.rcloneview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.rcloneview-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rcloneview-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.rcloneview-count-badge {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: rgba(30, 41, 59, 0.7);
+  padding: 2px 8px;
+  border-radius: 9999px;
+  border: 1px solid var(--border-subtle);
+}
+
+.rcloneview-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* RcloneView Blue Path Header (如 RcloneView 截圖頂部的深藍色左右條) */
+.rcloneview-path-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: #0284c7; /* RcloneView signature blue */
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  color: #ffffff;
+  overflow: hidden;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.path-col {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.path-src {
+  border-right: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.path-star, .path-triangle {
+  font-size: 12px;
   flex-shrink: 0;
 }
 
-.path-badge-text {
-  color: var(--text-primary);
+.path-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: monospace;
+  letter-spacing: -0.2px;
+  flex: 1;
 }
 
-.path-arrow-icon {
+.path-icon-right {
   width: 14px;
   height: 14px;
-  color: var(--text-muted);
+  color: #fef08a;
+  flex-shrink: 0;
 }
 
-/* RcloneView Display Toolbar (like RcloneView screenshot) */
-.rcloneview-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  padding: 8px 12px;
-  margin-bottom: 12px;
-}
-
-.display-toggle-group {
+/* RcloneView Toolbar: Display filters, buttons, search */
+.rcloneview-action-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  background: #0f172a;
+  border-left: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 6px 10px;
 }
 
-.display-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-secondary);
-  margin-right: 4px;
-}
-
-.toggle-btn {
-  display: inline-flex;
+.display-group {
+  display: flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 10px;
+}
+
+.toolbar-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+
+.rv-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
   border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
@@ -3657,94 +3815,94 @@ onUnmounted(() => {
   transition: all 0.15s;
 }
 
-.toggle-icon {
-  width: 13px;
-  height: 13px;
+.rv-icon {
+  width: 12px;
+  height: 12px;
 }
 
-.text-green { color: #10b981; }
-.text-blue { color: #38bdf8; }
-.text-purple { color: #c084fc; }
-.text-neutral { color: #94a3b8; }
-.text-red { color: #f43f5e; }
-
-.toggle-src.active {
-  background: rgba(16, 185, 129, 0.18);
-  border-color: rgba(16, 185, 129, 0.5);
+.rv-toggle-btn.active.toggle-src {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.6);
   color: #34d399;
 }
 
-.toggle-dest.active {
-  background: rgba(56, 189, 248, 0.18);
-  border-color: rgba(56, 189, 248, 0.5);
+.rv-toggle-btn.active.toggle-dest {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: rgba(56, 189, 248, 0.6);
   color: #38bdf8;
 }
 
-.toggle-diff.active {
-  background: rgba(168, 85, 247, 0.18);
-  border-color: rgba(168, 85, 247, 0.5);
+.rv-toggle-btn.active.toggle-eq {
+  background: rgba(148, 163, 184, 0.2);
+  border-color: rgba(148, 163, 184, 0.6);
+  color: #e2e8f0;
+}
+
+.rv-toggle-btn.active.toggle-diff {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: rgba(168, 85, 247, 0.6);
   color: #d8b4fe;
 }
 
-.toggle-eq.active {
-  background: rgba(148, 163, 184, 0.18);
-  border-color: rgba(148, 163, 184, 0.5);
-  color: #cbd5e1;
-}
-
-.toggle-err.active {
-  background: rgba(244, 63, 94, 0.18);
-  border-color: rgba(244, 63, 94, 0.5);
+.rv-toggle-btn.active.toggle-err {
+  background: rgba(244, 63, 94, 0.2);
+  border-color: rgba(244, 63, 94, 0.6);
   color: #fb7185;
 }
 
-.toolbar-right {
+.actions-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  margin-left: 8px;
 }
 
-.search-input-box {
+.search-group {
+  margin-left: auto;
+}
+
+.rv-search-box {
   display: flex;
   align-items: center;
   gap: 6px;
   background: rgba(15, 23, 42, 0.9);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
-  padding: 4px 8px;
+  padding: 3px 8px;
 }
 
-.search-icon {
-  width: 13px;
-  height: 13px;
+.rv-search-icon {
+  width: 12px;
+  height: 12px;
   color: var(--text-muted);
 }
 
-.search-input {
+.rv-search-input {
   background: transparent;
   border: none;
   color: var(--text-primary);
   font-size: 11px;
-  width: 140px;
+  width: 160px;
   outline: none;
 }
 
-/* Compare Table Styling */
-.compare-table-wrapper {
-  max-height: 400px;
+/* RcloneView Classical Table Styling */
+.rcloneview-table-container {
+  flex: 1;
+  max-height: 480px;
   overflow-y: auto;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: rgba(15, 23, 42, 0.7);
+  border-left: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  background: #090d16;
 }
 
-.compare-table {
+.rv-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
-.compare-table thead {
+.rv-thead-row {
   position: sticky;
   top: 0;
   background: #0f172a;
@@ -3752,172 +3910,201 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.compare-table th {
-  padding: 8px 10px;
-  text-align: left;
+.rv-thead-row th {
+  padding: 6px 8px;
   font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
+  text-align: left;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.th-checkbox { width: 30px; text-align: center; }
-.th-source { width: 38%; }
-.th-status { width: 18%; text-align: center; }
-.th-dest { width: 34%; }
-.th-action { width: 70px; text-align: right; }
+/* Column Width Distributions */
+.col-chk { width: 32px; text-align: center; }
+.col-src-name { width: 28%; }
+.col-src-size { width: 8%; text-align: right; }
+.col-src-date { width: 12%; }
 
-.compare-row {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  transition: background 0.12s;
+.col-dir {
+  width: 44px;
+  text-align: center;
+  background: rgba(15, 23, 42, 0.95);
+  border-left: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
 }
 
-.compare-row:hover {
-  background: rgba(255, 255, 255, 0.03);
+.col-dst-name { width: 28%; }
+.col-dst-size { width: 8%; text-align: right; }
+.col-dst-date { width: 12%; }
+.col-act { width: 65px; text-align: center; }
+
+/* Rows */
+.rv-row {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: background 0.1s;
 }
 
-.row-selected {
-  background: rgba(56, 189, 248, 0.08) !important;
+.rv-row:hover {
+  background: rgba(255, 255, 255, 0.04);
 }
 
-.compare-table td {
-  padding: 7px 10px;
+/* User's red-boxed selection effect (柔和淡藍色選中高亮背景) */
+.rv-row.rv-row-selected {
+  background: rgba(56, 189, 248, 0.16) !important;
+  border-bottom-color: rgba(56, 189, 248, 0.3) !important;
+}
+
+.rv-row td {
+  padding: 5px 8px;
   vertical-align: middle;
+  border-right: 1px solid rgba(255, 255, 255, 0.03);
 }
 
-.td-checkbox { text-align: center; }
-
-.file-cell {
+.rv-file-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 280px;
 }
 
-.file-name {
+.entry-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.entry-name {
   font-family: monospace;
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.file-muted {
+.entry-empty {
   color: var(--text-muted);
   font-style: italic;
 }
 
-/* Status Indicator Badges (Middle column) */
-.status-indicator-badge {
-  display: inline-flex;
+.entry-placeholder {
+  color: #64748b;
+  font-size: 11px;
+  font-style: italic;
+}
+
+.dir-icon-badge {
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 9999px;
-  font-size: 10.5px;
-  font-weight: 600;
 }
 
-.indicator-icon {
-  width: 12px;
-  height: 12px;
+.dir-icon {
+  width: 15px;
+  height: 15px;
 }
 
-.status-indicator-badge.source_only {
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.35);
-}
+.text-amber { color: #f59e0b; }
 
-.status-indicator-badge.dest_only {
-  background: rgba(56, 189, 248, 0.15);
-  color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.35);
-}
-
-.status-indicator-badge.different {
-  background: rgba(168, 85, 247, 0.15);
-  color: #d8b4fe;
-  border: 1px solid rgba(168, 85, 247, 0.35);
-}
-
-.status-indicator-badge.equal {
-  background: rgba(148, 163, 184, 0.1);
-  color: #94a3b8;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-}
-
-.status-indicator-badge.error {
-  background: rgba(244, 63, 94, 0.15);
-  color: #fb7185;
-  border: 1px solid rgba(244, 63, 94, 0.35);
-}
-
-.btn-row-action {
-  background: rgba(16, 185, 129, 0.12);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  border-radius: 4px;
-  padding: 2px 6px;
-  font-size: 10px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  transition: all 0.15s;
-}
-
-.btn-row-action:hover {
-  background: rgba(16, 185, 129, 0.25);
-  border-color: #34d399;
-}
-
-.row-action-icon {
-  width: 10px;
-  height: 10px;
-}
-
-.empty-diff-td {
-  padding: 30px;
+.rv-empty-cell {
   text-align: center;
+  padding: 40px;
 }
 
-.empty-diff-state {
+.placeholder-height {
+  padding: 80px 20px;
+}
+
+.rv-empty-box {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 8px;
   color: var(--text-muted);
-  font-size: 13px;
 }
 
-.compare-footer-bar {
+.rv-empty-box h4 {
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.rv-empty-box p {
+  font-size: 12px;
+}
+
+/* Classical RcloneView Bottom Statusbar */
+.rcloneview-statusbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
-  font-size: 11px;
+  background: #0b1120;
+  border: 1px solid var(--border-subtle);
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  padding: 5px 12px;
+  font-size: 11.5px;
   color: var(--text-muted);
-  background: rgba(15, 23, 42, 0.85);
-  border-top: 1px solid var(--border-subtle);
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
-}
-
-.footer-msg {
-  color: var(--accent-cyan);
   font-weight: 500;
 }
 
-.diff-empty-placeholder {
-  text-align: center;
-  padding: 40px 20px;
-  background: rgba(15, 23, 42, 0.4);
-  border: 1px dashed var(--border-subtle);
-  border-radius: var(--radius-md);
-  margin-bottom: 12px;
+.selected-count-tag {
+  color: var(--accent-cyan);
+  font-weight: 700;
 }
 
-.empty-placeholder-icon {
-  width: 36px;
-  height: 36px;
+/* Task Log Details Drawer */
+.task-log-details {
+  margin-top: 10px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.log-summary {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(15, 23, 42, 0.85);
+}
+
+.log-summary-hint {
+  font-size: 11px;
+  color: var(--accent-cyan);
+}
+
+.log-content-pre {
+  padding: 10px 12px;
+  font-family: monospace;
+  font-size: 11px;
+  color: #94a3b8;
+  max-height: 180px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.diff-empty-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.diff-empty-placeholder .empty-icon {
+  width: 48px;
+  height: 48px;
   color: var(--text-muted);
+  opacity: 0.6;
   margin-bottom: 8px;
 }
 

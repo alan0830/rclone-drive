@@ -44,6 +44,10 @@ pub struct DiffItem {
     pub path: String,
     pub status: String, // "source_only" (+), "dest_only" (-), "different" (*), "equal" (=), "error" (!)
     pub symbol: String,
+    pub size_src: Option<String>,
+    pub mtime_src: Option<String>,
+    pub size_dest: Option<String>,
+    pub mtime_dest: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -548,6 +552,68 @@ fn list_remote_dirs(
     Ok(dirs)
 }
 
+fn format_file_size(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{} B", bytes)
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else if bytes < 1024 * 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else {
+        format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    }
+}
+
+fn format_system_time(st: std::time::SystemTime) -> String {
+    if let Ok(dur) = st.duration_since(std::time::UNIX_EPOCH) {
+        let secs = dur.as_secs();
+        let local_secs = secs + 8 * 3600;
+        let days = local_secs / 86400;
+        let day_secs = local_secs % 86400;
+        let hours = day_secs / 3600;
+        let mins = (day_secs % 3600) / 60;
+
+        let mut y = 1970;
+        let mut d = days;
+        loop {
+            let leap = (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
+            let y_days = if leap { 366 } else { 365 };
+            if d < y_days {
+                break;
+            }
+            d -= y_days;
+            y += 1;
+        }
+        let leap = (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
+        let m_days = [
+            31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+        ];
+        let mut m = 1;
+        for &dim in &m_days {
+            if d < dim {
+                break;
+            }
+            d -= dim;
+            m += 1;
+        }
+        let day = d + 1;
+        format!("{:04}/{:02}/{:02} {:02}:{:02}", y, m, day, hours, mins)
+    } else {
+        "-".to_string()
+    }
+}
+
+fn query_file_meta(root: &str, rel: &str) -> (Option<String>, Option<String>) {
+    let p = Path::new(root).join(rel.replace('/', "\\"));
+    if let Ok(meta) = std::fs::metadata(&p) {
+        let size = format_file_size(meta.len());
+        let mtime = meta.modified().map(format_system_time).unwrap_or_else(|_| "-".to_string());
+        (Some(size), Some(mtime))
+    } else {
+        (None, None)
+    }
+}
+
 // RcloneView Plus Compare / Check Diff
 #[tauri::command]
 fn check_folder_diff(
@@ -558,13 +624,6 @@ fn check_folder_diff(
 ) -> Result<DiffSummary, String> {
     let exe = resolve_rclone_path(rclone_path);
     let mut cmd = Command::new(&exe);
-    // rclone check source dest --combined -
-    // Symbol meanings in --combined:
-    // '=' equal: File identical in both
-    // '+' missing in dest: File is ONLY in source (待同步至目標 ➡️)
-    // '-' missing in source: File is ONLY in dest (目標端多出 ⬅️)
-    // '*' mismatch: File exists in both but differs in size/hash/modtime (≠ 差異)
-    // '!' error: Error reading/hashing (❗ 異常)
     cmd.args(["check", &source, &dest, "--combined", "-"]);
 
     if let Some(excludes) = exclude_patterns {
@@ -597,6 +656,9 @@ fn check_folder_diff(
         let first_char = trimmed.chars().next().unwrap();
         let path = trimmed[1..].trim_start().to_string();
 
+        let (src_size, src_mtime) = query_file_meta(&source, &path);
+        let (dst_size, dst_mtime) = query_file_meta(&dest, &path);
+
         match first_char {
             '+' => {
                 total_s += 1;
@@ -605,6 +667,10 @@ fn check_folder_diff(
                     path,
                     status: "source_only".to_string(),
                     symbol: "+".to_string(),
+                    size_src: src_size,
+                    mtime_src: src_mtime,
+                    size_dest: None,
+                    mtime_dest: None,
                 });
             }
             '-' => {
@@ -614,6 +680,10 @@ fn check_folder_diff(
                     path,
                     status: "dest_only".to_string(),
                     symbol: "-".to_string(),
+                    size_src: None,
+                    mtime_src: None,
+                    size_dest: dst_size,
+                    mtime_dest: dst_mtime,
                 });
             }
             '*' => {
@@ -623,6 +693,10 @@ fn check_folder_diff(
                     path,
                     status: "different".to_string(),
                     symbol: "*".to_string(),
+                    size_src: src_size,
+                    mtime_src: src_mtime,
+                    size_dest: dst_size,
+                    mtime_dest: dst_mtime,
                 });
             }
             '=' => {
@@ -631,6 +705,10 @@ fn check_folder_diff(
                     path,
                     status: "equal".to_string(),
                     symbol: "=".to_string(),
+                    size_src: src_size.clone(),
+                    mtime_src: src_mtime.clone(),
+                    size_dest: dst_size.or(src_size),
+                    mtime_dest: dst_mtime.or(src_mtime),
                 });
             }
             '!' => {
@@ -640,6 +718,10 @@ fn check_folder_diff(
                     path,
                     status: "error".to_string(),
                     symbol: "!".to_string(),
+                    size_src: src_size,
+                    mtime_src: src_mtime,
+                    size_dest: dst_size,
+                    mtime_dest: dst_mtime,
                 });
             }
             _ => {}

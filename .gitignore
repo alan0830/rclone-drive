@@ -24,3 +24,4 @@ target
 *.njsproj
 *.sln
 *.sw?
+release_files/
