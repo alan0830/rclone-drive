@@ -115,6 +115,7 @@ const syncForm = reactive({
     error: true        // ❗ 異常
   },
   selectedItems: new Set(),
+  autoAddToScheduler: false, // 是否在設定/同步完成後自動加入排程
   isChecking: false,
   isRunning: false,
   isCopyingSelected: false,
@@ -138,6 +139,7 @@ const newTask = reactive({
   source: "",
   dest: "",
   action: "copy",
+  excludeFilter: "",
   intervalMinutes: 60,
   enabled: true
 });
@@ -720,6 +722,27 @@ async function handleCopySingleFile(filePath) {
   }
 }
 
+// Open Schedule Modal Pre-filled with Sync Settings
+function openScheduleFromSync() {
+  if (!syncForm.source || !syncForm.dest) {
+    showToast("請先選擇或填寫來源與目的路徑！", "error");
+    return;
+  }
+  const cleanSrc = syncForm.source.replace(/[\\/]+$/, "");
+  const cleanDst = syncForm.dest.replace(/[\\/]+$/, "");
+  const srcName = cleanSrc.split(/[\\/:]/).pop() || cleanSrc;
+  const dstName = cleanDst.split(/[\\/:]/).pop() || cleanDst;
+
+  newTask.name = `定時${syncForm.action === 'sync' ? '鏡像同步' : '增量備份'}: ${srcName} ➔ ${dstName}`;
+  newTask.source = syncForm.source.trim();
+  newTask.dest = syncForm.dest.trim();
+  newTask.action = syncForm.action;
+  newTask.excludeFilter = syncForm.excludeFilter ? syncForm.excludeFilter.trim() : "";
+  newTask.intervalMinutes = 60;
+  newTask.enabled = true;
+  showAddTaskModal.value = true;
+}
+
 // RcloneView Plus Run Sync Job
 async function handleRunSync() {
   if (!syncForm.source || !syncForm.dest) {
@@ -743,6 +766,37 @@ async function handleRunSync() {
     });
     syncForm.taskLog = log;
     showToast("同步/備份任務執行成功！", "success");
+
+    // 若勾選自動加入排程，且尚未存在相同來源與目的之排程，則直接加入
+    if (syncForm.autoAddToScheduler) {
+      const cleanSrc = syncForm.source.replace(/[\\/]+$/, "");
+      const cleanDst = syncForm.dest.replace(/[\\/]+$/, "");
+      const srcName = cleanSrc.split(/[\\/:]/).pop() || cleanSrc;
+      const dstName = cleanDst.split(/[\\/:]/).pop() || cleanDst;
+
+      const exists = scheduledTasks.value.some(
+        (t) => t.source === syncForm.source.trim() && t.dest === syncForm.dest.trim()
+      );
+      if (!exists) {
+        const task = {
+          id: Date.now().toString(),
+          name: `自動${syncForm.action === 'sync' ? '同步' : '備份'}: ${srcName} ➔ ${dstName}`,
+          source: syncForm.source.trim(),
+          dest: syncForm.dest.trim(),
+          action: syncForm.action,
+          excludeFilter: syncForm.excludeFilter ? syncForm.excludeFilter.trim() : "",
+          intervalMinutes: 60,
+          enabled: true,
+          lastRun: new Date().toLocaleTimeString(),
+          lastRunTs: Date.now(),
+          status: "成功完成"
+        };
+        scheduledTasks.value.push(task);
+        saveScheduledTasks();
+        showToast("同步成功！已為您自動加入背景定時排程 (每 60 分鐘自動執行)！", "success");
+      }
+    }
+
     await handleCheckDiff();
   } catch (err) {
     syncForm.taskLog = `錯誤: ${err}`;
@@ -764,6 +818,7 @@ function submitAddTask() {
     source: newTask.source.trim(),
     dest: newTask.dest.trim(),
     action: newTask.action,
+    excludeFilter: newTask.excludeFilter ? newTask.excludeFilter.trim() : "",
     intervalMinutes: Number(newTask.intervalMinutes) || 60,
     enabled: true,
     lastRun: "從未執行",
@@ -775,7 +830,8 @@ function submitAddTask() {
   newTask.name = "";
   newTask.source = "";
   newTask.dest = "";
-  showToast("已成功建立排程任務！", "success");
+  newTask.excludeFilter = "";
+  showToast("已成功建立排程任務！程式常駐右下角時將自動定時執行", "success");
 }
 
 function removeTask(id) {
@@ -805,11 +861,15 @@ function runSchedulerCycle() {
       task.lastRunTs = now;
       task.lastRun = new Date().toLocaleTimeString();
       try {
+        const excludePatterns = task.excludeFilter
+          ? task.excludeFilter.split(",").map((s) => s.trim()).filter(Boolean)
+          : null;
         await invoke("run_sync_task", {
           rclonePath: customRclonePath.value.trim() || null,
           action: task.action,
           source: task.source,
-          dest: task.dest
+          dest: task.dest,
+          excludePatterns
         });
         task.status = "成功完成";
       } catch (err) {
@@ -1311,6 +1371,16 @@ onUnmounted(() => {
               </div>
             </div>
 
+            <!-- Schedule Auto Option Checkbox -->
+            <div class="checkbox-row mb-3" @click="syncForm.autoAddToScheduler = !syncForm.autoAddToScheduler">
+              <div class="custom-checkbox" :class="{ checked: syncForm.autoAddToScheduler }">
+                <Check v-if="syncForm.autoAddToScheduler" class="check-icon" />
+              </div>
+              <span class="checkbox-label text-cyan font-medium">
+                執行同步時，同時將此任務直接加入背景定時排程 (每 60 分鐘自動執行)
+              </span>
+            </div>
+
             <!-- Action Buttons -->
             <div class="action-buttons-row">
               <button
@@ -1330,6 +1400,16 @@ onUnmounted(() => {
                 <Play class="btn-icon" :class="{ 'spin-anim': syncForm.isRunning }" />
                 <span>{{ syncForm.isRunning ? '任務執行中...' : '立即開始同步/備份' }}</span>
               </button>
+
+              <button
+                class="btn btn-schedule btn-lg"
+                @click="openScheduleFromSync"
+                :disabled="!syncForm.source || !syncForm.dest"
+                title="直接將目前的同步設定（來源、目的、動作與排除）建立為定時排程任務"
+              >
+                <CalendarClock class="btn-icon" />
+                <span>直接加入排程任務</span>
+              </button>
             </div>
           </div>
 
@@ -1341,6 +1421,14 @@ onUnmounted(() => {
                 <span>差異比對報告 (RcloneView 檢視模式)</span>
               </div>
               <div class="compare-header-actions" v-if="syncForm.diffResult">
+                <button
+                  class="btn btn-xs btn-schedule-outline"
+                  @click="openScheduleFromSync"
+                  title="比對無誤，直接將此任務建立為背景定時排程"
+                >
+                  <CalendarClock class="btn-icon-xs" />
+                  <span>建立為排程任務</span>
+                </button>
                 <button
                   class="btn btn-xs btn-outline"
                   @click="handleCheckDiff"
@@ -1936,6 +2024,11 @@ onUnmounted(() => {
               <option value="copy">Copy (增量備份，不刪除目的端檔案)</option>
               <option value="sync">Sync (完全鏡像同步，目的端檔案與來源一致)</option>
             </select>
+          </div>
+          <div class="setting-group">
+            <label class="group-title">排除檔案過濾規則 (選填)</label>
+            <input type="text" v-model="newTask.excludeFilter" class="modal-input" placeholder="例如：*.tmp, *.bak, thumbs.db, node_modules/**" />
+            <span class="field-hint">若有輸入，排程執行時將自動略過符合的檔案</span>
           </div>
           <div class="setting-group">
             <label class="group-title">執行頻率 (分鐘)</label>
@@ -3445,6 +3538,33 @@ onUnmounted(() => {
 .btn-icon-xs {
   width: 12px;
   height: 12px;
+}
+
+.btn-schedule {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  color: white;
+  border: none;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+  transition: all 0.2s;
+}
+
+.btn-schedule:hover:not(:disabled) {
+  background: linear-gradient(135deg, #047857 0%, #059669 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.45);
+}
+
+.btn-schedule-outline {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  transition: all 0.15s;
+}
+
+.btn-schedule-outline:hover {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: #34d399;
 }
 
 /* Path Indicator Bar */
