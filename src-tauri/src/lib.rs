@@ -40,9 +40,20 @@ pub struct MountInstance {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiffItem {
+    pub path: String,
+    pub status: String, // "source_only" (+), "dest_only" (-), "different" (*), "equal" (=), "error" (!)
+    pub symbol: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiffSummary {
     pub total_source_files: usize,
     pub total_dest_files: usize,
+    pub total_different: usize,
+    pub total_equal: usize,
+    pub total_error: usize,
+    pub items: Vec<DiffItem>,
     pub differences: Vec<String>,
     pub message: String,
 }
@@ -482,46 +493,215 @@ fn open_browser_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
+// Native Local Folder Browser Dialog (Windows Forms STA)
+#[tauri::command]
+fn select_local_folder() -> Result<Option<String>, String> {
+    let script = r#"
+        [System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null
+        $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dialog.Description = "請選擇資料夾"
+        $dialog.ShowNewFolderButton = $true
+        if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+            [Console]::Out.Write($dialog.SelectedPath)
+        }
+    "#;
+
+    let output = Command::new("powershell")
+        .args(["-STA", "-NoProfile", "-Command", script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("開啟資料夾瀏覽視窗失敗: {}", e))?;
+
+    let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if path_str.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(path_str))
+    }
+}
+
+// List directories inside a cloud remote (e.g. GDrive: or GDrive:folder)
+#[tauri::command]
+fn list_remote_dirs(
+    rclone_path: Option<String>,
+    remote_path: String,
+) -> Result<Vec<String>, String> {
+    let exe = resolve_rclone_path(rclone_path);
+    let mut cmd = Command::new(&exe);
+    cmd.args(["lsf", &remote_path, "--dirs-only"]);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    let output = cmd.output().map_err(|e| format!("讀取雲端目錄失敗: {}", e))?;
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("列出目錄失敗: {}", err));
+    }
+
+    let out_str = String::from_utf8_lossy(&output.stdout);
+    let dirs: Vec<String> = out_str
+        .lines()
+        .map(|l| l.trim().trim_end_matches('/').to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+
+    Ok(dirs)
+}
+
 // RcloneView Plus Compare / Check Diff
 #[tauri::command]
 fn check_folder_diff(
     rclone_path: Option<String>,
     source: String,
     dest: String,
+    exclude_patterns: Option<Vec<String>>,
 ) -> Result<DiffSummary, String> {
     let exe = resolve_rclone_path(rclone_path);
     let mut cmd = Command::new(&exe);
-    cmd.args(["check", &source, &dest, "--one-way", "--combined", "-"]);
+    // rclone check source dest --combined -
+    // Symbol meanings in --combined:
+    // '=' equal: File identical in both
+    // '+' missing in dest: File is ONLY in source (待同步至目標 ➡️)
+    // '-' missing in source: File is ONLY in dest (目標端多出 ⬅️)
+    // '*' mismatch: File exists in both but differs in size/hash/modtime (≠ 差異)
+    // '!' error: Error reading/hashing (❗ 異常)
+    cmd.args(["check", &source, &dest, "--combined", "-"]);
+
+    if let Some(excludes) = exclude_patterns {
+        for pattern in excludes {
+            let p = pattern.trim();
+            if !p.is_empty() {
+                cmd.args(["--exclude", p]);
+            }
+        }
+    }
+
     cmd.creation_flags(CREATE_NO_WINDOW);
 
     let output = cmd.output().map_err(|e| format!("執行比對失敗: {}", e))?;
     let out_str = String::from_utf8_lossy(&output.stdout);
 
+    let mut items = Vec::new();
     let mut diffs = Vec::new();
-    let mut total_s = 0;
-    let mut total_d = 0;
+    let mut total_s = 0; // source only (+)
+    let mut total_d = 0; // dest only (-)
+    let mut total_diff = 0; // different (*)
+    let mut total_eq = 0; // equal (=)
+    let mut total_err = 0; // error (!)
 
     for line in out_str.lines() {
-        if line.starts_with('+') || line.starts_with('-') || line.starts_with('*') || line.starts_with('!') {
-            diffs.push(line.to_string());
-            if line.starts_with('+') {
-                total_d += 1;
-            } else if line.starts_with('-') {
+        let trimmed = line.trim_end();
+        if trimmed.len() < 2 {
+            continue;
+        }
+        let first_char = trimmed.chars().next().unwrap();
+        let path = trimmed[1..].trim_start().to_string();
+
+        match first_char {
+            '+' => {
                 total_s += 1;
+                diffs.push(trimmed.to_string());
+                items.push(DiffItem {
+                    path,
+                    status: "source_only".to_string(),
+                    symbol: "+".to_string(),
+                });
             }
+            '-' => {
+                total_d += 1;
+                diffs.push(trimmed.to_string());
+                items.push(DiffItem {
+                    path,
+                    status: "dest_only".to_string(),
+                    symbol: "-".to_string(),
+                });
+            }
+            '*' => {
+                total_diff += 1;
+                diffs.push(trimmed.to_string());
+                items.push(DiffItem {
+                    path,
+                    status: "different".to_string(),
+                    symbol: "*".to_string(),
+                });
+            }
+            '=' => {
+                total_eq += 1;
+                items.push(DiffItem {
+                    path,
+                    status: "equal".to_string(),
+                    symbol: "=".to_string(),
+                });
+            }
+            '!' => {
+                total_err += 1;
+                diffs.push(trimmed.to_string());
+                items.push(DiffItem {
+                    path,
+                    status: "error".to_string(),
+                    symbol: "!".to_string(),
+                });
+            }
+            _ => {}
         }
     }
+
+    let message = if total_s == 0 && total_d == 0 && total_diff == 0 && total_err == 0 {
+        "兩端檔案完全一致，無任何差異！".to_string()
+    } else {
+        format!(
+            "比對完成：來源待同步 {} 檔，目的端多出 {} 檔，內容差異 {} 檔，一致 {} 檔",
+            total_s, total_d, total_diff, total_eq
+        )
+    };
 
     Ok(DiffSummary {
         total_source_files: total_s,
         total_dest_files: total_d,
-        differences: diffs.into_iter().take(100).collect(),
-        message: if output.status.success() {
-            "兩端檔案完全一致，無任何差異！".to_string()
-        } else {
-            "偵測到檔案差異。".to_string()
-        },
+        total_different: total_diff,
+        total_equal: total_eq,
+        total_error: total_err,
+        differences: diffs.into_iter().take(200).collect(),
+        items,
+        message,
     })
+}
+
+// Copy Specific Selected Files
+#[tauri::command]
+fn copy_specific_files(
+    rclone_path: Option<String>,
+    source: String,
+    dest: String,
+    files: Vec<String>,
+) -> Result<String, String> {
+    if files.is_empty() {
+        return Err("請先勾選要複製的檔案項目！".to_string());
+    }
+
+    let exe = resolve_rclone_path(rclone_path);
+    let mut cmd = Command::new(&exe);
+    cmd.arg("copy");
+    cmd.arg(&source);
+    cmd.arg(&dest);
+
+    for file in files {
+        let f = file.replace('\\', "/");
+        cmd.args(["--include", &format!("/{}", f.trim_start_matches('/'))]);
+    }
+    cmd.arg("-v");
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    let output = cmd.output().map_err(|e| format!("執行複製失敗: {}", e))?;
+    if output.status.success() {
+        let err_log = String::from_utf8_lossy(&output.stderr);
+        let out_log = String::from_utf8_lossy(&output.stdout);
+        let combined = format!("{}\n{}", out_log.trim(), err_log.trim());
+        Ok(if combined.trim().is_empty() { "檔案已成功複製完成！".to_string() } else { combined.trim().to_string() })
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr);
+        Err(format!("複製失敗: {}", err))
+    }
 }
 
 // RcloneView Plus Run Sync Job
@@ -531,6 +711,7 @@ fn run_sync_task(
     action: String,
     source: String,
     dest: String,
+    exclude_patterns: Option<Vec<String>>,
 ) -> Result<String, String> {
     let exe = resolve_rclone_path(rclone_path);
     let mut cmd = Command::new(&exe);
@@ -542,13 +723,25 @@ fn run_sync_task(
     cmd.arg(act);
     cmd.arg(&source);
     cmd.arg(&dest);
+
+    if let Some(excludes) = exclude_patterns {
+        for pattern in excludes {
+            let p = pattern.trim();
+            if !p.is_empty() {
+                cmd.args(["--exclude", p]);
+            }
+        }
+    }
+
     cmd.arg("-v");
     cmd.creation_flags(CREATE_NO_WINDOW);
 
     let output = cmd.output().map_err(|e| format!("執行同步/備份任務失敗: {}", e))?;
     if output.status.success() {
         let err_log = String::from_utf8_lossy(&output.stderr);
-        Ok(format!("任務完成！\n{}", err_log.lines().rev().take(5).collect::<Vec<_>>().join("\n")))
+        let out_log = String::from_utf8_lossy(&output.stdout);
+        let combined = format!("{}\n{}", out_log.trim(), err_log.trim());
+        Ok(if combined.trim().is_empty() { "任務執行成功完成！".to_string() } else { combined.trim().to_string() })
     } else {
         let err = String::from_utf8_lossy(&output.stderr);
         Err(format!("任務失敗: {}", err))
@@ -640,6 +833,9 @@ pub fn run() {
             open_browser_url,
             check_folder_diff,
             run_sync_task,
+            select_local_folder,
+            list_remote_dirs,
+            copy_specific_files,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
