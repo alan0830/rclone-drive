@@ -43,7 +43,8 @@ import {
   FolderPlus,
   SlidersHorizontal,
   Sun,
-  Moon
+  Moon,
+  Zap
 } from "lucide-vue-next";
 
 // Theme State (Dark / Light)
@@ -996,6 +997,50 @@ function saveCustomPath() {
   refreshAll();
 }
 
+const isInstallingRclone = ref(false);
+const isInstallingWinFsp = ref(false);
+
+async function handleAutoInstallRclone() {
+  if (isInstallingRclone.value) return;
+  isInstallingRclone.value = true;
+  showToast("正在自官方下載並配置 Rclone 最新版，請稍候...", "info");
+  try {
+    const installedPath = await invoke("auto_install_rclone");
+    customRclonePath.value = installedPath;
+    localStorage.setItem("rclone_custom_path", installedPath);
+    showToast(`Rclone 自動配置成功！已安裝於：${installedPath}`, "success");
+    await refreshAll();
+  } catch (err) {
+    showToast(`自動安裝 Rclone 失敗: ${err}`, "error");
+  } finally {
+    isInstallingRclone.value = false;
+  }
+}
+
+async function handleAutoInstallWinFsp() {
+  if (isInstallingWinFsp.value) return;
+  isInstallingWinFsp.value = true;
+  showToast("正在下載 WinFsp 官方安裝程式，下載完成後將自動啟動安裝精靈...", "info");
+  try {
+    await invoke("auto_install_winfsp");
+    showToast("WinFsp 安裝精靈已啟動！請於 Windows 安裝精靈中點擊下一步完成安裝。", "success");
+    await refreshAll();
+  } catch (err) {
+    showToast(`下載或安裝 WinFsp 失敗: ${err}`, "error");
+  } finally {
+    isInstallingWinFsp.value = false;
+  }
+}
+
+async function handleAutoInstallAll() {
+  if (!envStatus.value.rclone_found) {
+    await handleAutoInstallRclone();
+  }
+  if (!envStatus.value.winfsp_found) {
+    await handleAutoInstallWinFsp();
+  }
+}
+
 const mountedCount = computed(() => remotes.value.filter((r) => r.is_mounted).length);
 const totalCount = computed(() => remotes.value.length);
 const isPrerequisiteMissing = computed(() => !envStatus.value.rclone_found || !envStatus.value.winfsp_found);
@@ -1089,6 +1134,15 @@ onUnmounted(() => {
         <div class="prereq-header">
           <AlertTriangle class="prereq-warn-icon" />
           <span class="prereq-title">系統偵測到缺少必要元件，雲端硬碟掛載功能需要以下工具：</span>
+          <button
+            v-if="!envStatus.rclone_found && !envStatus.winfsp_found"
+            class="btn btn-emerald btn-sm ml-auto"
+            :disabled="isInstallingRclone || isInstallingWinFsp"
+            @click="handleAutoInstallAll"
+          >
+            <Zap class="btn-icon" />
+            <span>⚡ 一鍵自動安裝全部必要元件</span>
+          </button>
         </div>
 
         <div class="prereq-cards-row">
@@ -1099,10 +1153,20 @@ onUnmounted(() => {
               <h4>Rclone 核心執行檔</h4>
               <p>預設檢查路徑 <code>C:\rclone\rclone.exe</code> 尚未找到執行檔。</p>
             </div>
-            <button class="btn btn-download" @click="openUrl('https://rclone.org/downloads/')">
-              <DownloadCloud class="btn-icon" />
-              <span>前往 Rclone 官網下載</span>
-            </button>
+            <div class="prereq-btn-group">
+              <button
+                class="btn btn-download"
+                :disabled="isInstallingRclone"
+                @click="handleAutoInstallRclone"
+              >
+                <DownloadCloud class="btn-icon" :class="{ 'spin-anim': isInstallingRclone }" />
+                <span>{{ isInstallingRclone ? '正在自動下載配置中...' : '⚡ 一鍵自動下載配置 Rclone' }}</span>
+              </button>
+              <button class="btn btn-download-alt" @click="openUrl('https://rclone.org/downloads/')">
+                <ExternalLink class="btn-icon" />
+                <span>官網手動下載</span>
+              </button>
+            </div>
           </div>
 
           <!-- WinFsp Missing Card -->
@@ -1113,13 +1177,17 @@ onUnmounted(() => {
               <p>Windows 虛擬檔案系統驅動，未安裝將無法建立本機磁碟代號。</p>
             </div>
             <div class="prereq-btn-group">
-              <button class="btn btn-download" @click="openUrl('https://winfsp.dev/')">
-                <DownloadCloud class="btn-icon" />
-                <span>WinFsp 官方網站</span>
+              <button
+                class="btn btn-download"
+                :disabled="isInstallingWinFsp"
+                @click="handleAutoInstallWinFsp"
+              >
+                <DownloadCloud class="btn-icon" :class="{ 'spin-anim': isInstallingWinFsp }" />
+                <span>{{ isInstallingWinFsp ? '正在下載並啟動安裝程式...' : '⚡ 一鍵下載安裝 WinFsp' }}</span>
               </button>
-              <button class="btn btn-download-alt" @click="openUrl('https://github.com/winfsp/winfsp/releases/latest')">
+              <button class="btn btn-download-alt" @click="openUrl('https://winfsp.dev/')">
                 <ExternalLink class="btn-icon" />
-                <span>GitHub 下載安裝檔 (.msi)</span>
+                <span>官網手動下載</span>
               </button>
             </div>
           </div>
@@ -1132,16 +1200,16 @@ onUnmounted(() => {
       <div class="env-item" :class="{ 'env-ok': envStatus.rclone_found, 'env-warn': !envStatus.rclone_found }">
         <component :is="envStatus.rclone_found ? CheckCircle2 : AlertTriangle" class="env-icon" />
         <span v-if="envStatus.rclone_found">Rclone: {{ envStatus.rclone_version || '已連線' }}</span>
-        <span v-else class="clickable-link" @click="openUrl('https://rclone.org/downloads/')">
-          Rclone: 尚未安裝 (點此下載)
+        <span v-else class="clickable-link" @click="handleAutoInstallRclone" title="點擊直接背景下載並自動配置 Rclone">
+          Rclone: 尚未安裝 (⚡ 點此一鍵安裝)
         </span>
       </div>
 
       <div class="env-item" :class="{ 'env-ok': envStatus.winfsp_found, 'env-warn': !envStatus.winfsp_found }">
         <component :is="envStatus.winfsp_found ? ShieldCheck : AlertTriangle" class="env-icon" />
         <span v-if="envStatus.winfsp_found">WinFsp: 已就緒 (正常運作)</span>
-        <span v-else class="clickable-link" @click="openUrl('https://winfsp.dev/')">
-          WinFsp: 尚未安裝 (點此下載安裝)
+        <span v-else class="clickable-link" @click="handleAutoInstallWinFsp" title="點擊直接下載 WinFsp 並啟動安裝精靈">
+          WinFsp: 尚未安裝 (⚡ 點此一鍵安裝)
         </span>
       </div>
 

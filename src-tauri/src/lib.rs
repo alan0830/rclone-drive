@@ -300,7 +300,109 @@ fn resolve_rclone_path(custom_path: Option<String>) -> String {
     if Path::new(default_path).exists() {
         return default_path.to_string();
     }
+    if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+        let appdata_path = Path::new(&local_appdata).join("RcloneDrive").join("bin").join("rclone.exe");
+        if appdata_path.exists() {
+            return appdata_path.to_string_lossy().to_string();
+        }
+    }
     "rclone".to_string()
+}
+
+#[tauri::command]
+async fn auto_install_rclone() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let script = r#"
+            $ErrorActionPreference = 'Stop'
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            $zipUrl = "https://downloads.rclone.org/rclone-current-windows-amd64.zip"
+            $tempZip = Join-Path $env:TEMP "rclone-setup.zip"
+            $tempExtract = Join-Path $env:TEMP "rclone-setup-extracted"
+
+            Invoke-WebRequest -Uri $zipUrl -OutFile $tempZip -UseBasicParsing
+
+            if (Test-Path $tempExtract) { Remove-Item -Recurse -Force $tempExtract }
+            Expand-Archive -Path $tempZip -DestinationPath $tempExtract -Force
+
+            $foundExe = Get-ChildItem -Path $tempExtract -Recurse -Filter "rclone.exe" | Select-Object -First 1
+            if (-not $foundExe) {
+                throw "無法在下載的壓縮包中找到 rclone.exe"
+            }
+
+            $targetDir = "C:\rclone"
+            $canWriteC = $true
+            try {
+                if (-not (Test-Path $targetDir)) {
+                    New-Item -ItemType Directory -Force -Path $targetDir -ErrorAction Stop | Out-Null
+                }
+                Copy-Item -Path $foundExe.FullName -Destination (Join-Path $targetDir "rclone.exe") -Force -ErrorAction Stop
+            } catch {
+                $canWriteC = $false
+            }
+
+            if (-not $canWriteC) {
+                $targetDir = Join-Path $env:LOCALAPPDATA "RcloneDrive\bin"
+                if (-not (Test-Path $targetDir)) {
+                    New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
+                }
+                Copy-Item -Path $foundExe.FullName -Destination (Join-Path $targetDir "rclone.exe") -Force
+            }
+
+            Remove-Item -Force $tempZip -ErrorAction SilentlyContinue
+            Remove-Item -Recurse -Force $tempExtract -ErrorAction SilentlyContinue
+
+            $finalExe = Join-Path $targetDir "rclone.exe"
+            Write-Output $finalExe
+        "#;
+
+        let mut cmd = Command::new("powershell.exe");
+        cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let output = cmd.output().map_err(|e| format!("執行下載安裝失敗: {}", e))?;
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            let out = String::from_utf8_lossy(&output.stdout);
+            return Err(format!("安裝 Rclone 失敗: {} {}", err.trim(), out.trim()));
+        }
+        let installed_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if installed_path.is_empty() {
+            return Err("下載完成但未取得安裝路徑".to_string());
+        }
+        Ok(installed_path)
+    })
+    .await
+    .map_err(|e| format!("執行緒錯誤: {}", e))?
+}
+
+#[tauri::command]
+async fn auto_install_winfsp() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let script = r#"
+            $ErrorActionPreference = 'Stop'
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            $msiUrl = "https://github.com/winfsp/winfsp/releases/download/v2.0/winfsp-2.0.23075.msi"
+            $tempMsi = Join-Path $env:TEMP "winfsp-installer.msi"
+
+            Invoke-WebRequest -Uri $msiUrl -OutFile $tempMsi -UseBasicParsing
+
+            Start-Process msiexec.exe -ArgumentList "/i `"$tempMsi`"" -Wait
+
+            Remove-Item -Force $tempMsi -ErrorAction SilentlyContinue
+            Write-Output "OK"
+        "#;
+
+        let mut cmd = Command::new("powershell.exe");
+        cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let output = cmd.output().map_err(|e| format!("啟動 WinFsp 安裝程式失敗: {}", e))?;
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("下載或安裝 WinFsp 失敗: {}", err.trim()));
+        }
+        Ok("WinFsp 安裝程式已執行完畢".to_string())
+    })
+    .await
+    .map_err(|e| format!("執行緒錯誤: {}", e))?
 }
 
 #[tauri::command]
@@ -315,12 +417,18 @@ fn check_environment(state: State<'_, AppState>, rclone_path: Option<String>) ->
         webgui_url: "http://127.0.0.1:5572/".to_string(),
     };
 
-    let winfsp_paths = [
-        "C:\\Program Files (x86)\\WinFsp",
-        "C:\\Program Files\\WinFsp",
+    let mut winfsp_paths = vec![
+        "C:\\Program Files (x86)\\WinFsp".to_string(),
+        "C:\\Program Files\\WinFsp".to_string(),
     ];
+    if let Ok(pf) = std::env::var("ProgramFiles") {
+        winfsp_paths.push(format!("{}\\WinFsp", pf));
+    }
+    if let Ok(pfx86) = std::env::var("ProgramFiles(x86)") {
+        winfsp_paths.push(format!("{}\\WinFsp", pfx86));
+    }
     for p in winfsp_paths {
-        if Path::new(p).exists() {
+        if Path::new(&p).exists() {
             status.winfsp_found = true;
             break;
         }
@@ -1280,6 +1388,8 @@ pub fn run() {
             get_app_settings,
             save_app_settings,
             apply_mounted_drive_icons,
+            auto_install_rclone,
+            auto_install_winfsp,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
