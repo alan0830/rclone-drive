@@ -126,7 +126,8 @@ const editRemoteForm = reactive({
 // Sync & Compare State (RcloneView Plus)
 const syncForm = reactive({
   source: "",
-  dest: "",
+  dest: "", // 主要目的路徑 (相容既有排程與比對)
+  extraDests: [], // 額外目的路徑清單: [ { id: string, path: string } ]
   action: "copy", // 預設使用 copy (增量備份，更安全)
   excludeFilter: "",
   searchKeyword: "",
@@ -157,7 +158,18 @@ const isLoadingCloudDirs = ref(false);
 // Scheduler State
 const scheduledTasks = ref(JSON.parse(localStorage.getItem("rclone_scheduled_tasks") || "[]"));
 const showAddTaskModal = ref(false);
+const showEditTaskModal = ref(false);
 const newTask = reactive({
+  name: "",
+  source: "",
+  dest: "",
+  action: "copy",
+  excludeFilter: "",
+  intervalMinutes: 60,
+  enabled: true
+});
+const editTaskForm = reactive({
+  id: "",
   name: "",
   source: "",
   dest: "",
@@ -168,6 +180,140 @@ const newTask = reactive({
 });
 
 let schedulerTimer = null;
+
+// GitHub Auto-Update State & Settings
+const CURRENT_VERSION = "1.5.3";
+const GITHUB_REPO = "alan0830/rclone-drive";
+
+const savedUpdateSettings = JSON.parse(localStorage.getItem("rclone_update_settings") || "{}");
+const updateSettings = reactive({
+  enabled: savedUpdateSettings.enabled !== false, // 預設開啟自動檢查
+  intervalDays: Number(savedUpdateSettings.intervalDays) || 7, // 預設一週 (7 天)
+  lastCheckTs: Number(savedUpdateSettings.lastCheckTs) || 0,
+  lastCheckTimeStr: savedUpdateSettings.lastCheckTimeStr || "從未檢查"
+});
+
+function saveUpdateSettings() {
+  localStorage.setItem("rclone_update_settings", JSON.stringify(updateSettings));
+}
+
+function toggleUpdateEnabled() {
+  updateSettings.enabled = !updateSettings.enabled;
+  saveUpdateSettings();
+  showToast(updateSettings.enabled ? "已啟用自動檢查版本更新 🔔" : "已關閉自動檢查更新 🔕", "info");
+}
+
+const showUpdateModal = ref(false);
+const isCheckingUpdate = ref(false);
+const isDownloadingUpdate = ref(false);
+const updateInfo = reactive({
+  latestVersion: "",
+  currentVersion: CURRENT_VERSION,
+  releaseTitle: "",
+  releaseNotes: "",
+  publishedAt: "",
+  htmlUrl: "",
+  downloadUrl: "",
+  assetName: ""
+});
+
+function compareSemver(v1, v2) {
+  const clean1 = (v1 || "").replace(/^v/i, "").trim().split(".").map((n) => parseInt(n, 10) || 0);
+  const clean2 = (v2 || "").replace(/^v/i, "").trim().split(".").map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(clean1.length, clean2.length);
+  for (let i = 0; i < len; i++) {
+    const num1 = clean1[i] || 0;
+    const num2 = clean2[i] || 0;
+    if (num1 > num2) return 1;
+    if (num1 < num2) return -1;
+  }
+  return 0;
+}
+
+async function checkForUpdates(manual = false) {
+  if (!manual) {
+    if (!updateSettings.enabled) return;
+    const intervalMs = (updateSettings.intervalDays || 7) * 24 * 60 * 60 * 1000;
+    if (Date.now() - (updateSettings.lastCheckTs || 0) < intervalMs) {
+      return; // 檢查間隔未到，略過
+    }
+  }
+
+  isCheckingUpdate.value = true;
+  try {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+      headers: { Accept: "application/vnd.github.v3+json" }
+    });
+    if (!res.ok) {
+      throw new Error(`GitHub API 回應錯誤 (${res.status} ${res.statusText})`);
+    }
+    const data = await res.json();
+    const latestTag = data.tag_name || "";
+
+    updateSettings.lastCheckTs = Date.now();
+    updateSettings.lastCheckTimeStr = new Date().toLocaleString();
+    saveUpdateSettings();
+
+    if (compareSemver(latestTag, CURRENT_VERSION) > 0) {
+      updateInfo.latestVersion = latestTag.replace(/^v/i, "");
+      updateInfo.currentVersion = CURRENT_VERSION;
+      updateInfo.releaseTitle = data.name || latestTag;
+      updateInfo.releaseNotes = data.body || "本次更新包含功能改進與問題修復。";
+      updateInfo.publishedAt = data.published_at ? new Date(data.published_at).toLocaleDateString() : "";
+      updateInfo.htmlUrl = data.html_url || `https://github.com/${GITHUB_REPO}/releases/latest`;
+
+      let assetUrl = "";
+      let assetName = "";
+      if (Array.isArray(data.assets)) {
+        const exeAsset = data.assets.find(
+          (a) => a.name.toLowerCase().endsWith(".exe") || a.name.toLowerCase().endsWith(".msi")
+        );
+        if (exeAsset) {
+          assetUrl = exeAsset.browser_download_url;
+          assetName = exeAsset.name;
+        }
+      }
+      updateInfo.downloadUrl = assetUrl || updateInfo.htmlUrl;
+      updateInfo.assetName = assetName;
+
+      showUpdateModal.value = true;
+    } else {
+      if (manual) {
+        showToast(`目前已是最新版本 (v${CURRENT_VERSION})！`, "success");
+      }
+    }
+  } catch (err) {
+    if (manual) {
+      showToast(`檢查更新失敗: ${err.message || err}`, "error");
+    }
+  } finally {
+    isCheckingUpdate.value = false;
+  }
+}
+
+async function executeUpdate() {
+  if (!updateInfo.downloadUrl || (!updateInfo.downloadUrl.endsWith(".exe") && !updateInfo.downloadUrl.endsWith(".msi"))) {
+    await openUrl(updateInfo.htmlUrl);
+    showUpdateModal.value = false;
+    return;
+  }
+
+  isDownloadingUpdate.value = true;
+  showToast("正在下載最新版本安裝程式，請稍候...", "info");
+  try {
+    const msg = await invoke("download_and_install_update", {
+      downloadUrl: updateInfo.downloadUrl
+    });
+    showToast(msg || "更新安裝程式已成功啟動！", "success");
+    showUpdateModal.value = false;
+  } catch (err) {
+    showToast(`自動啟動更新失敗: ${err}，已為您在瀏覽器開啟下載頁面`, "error");
+    await openUrl(updateInfo.htmlUrl);
+    showUpdateModal.value = false;
+  } finally {
+    isDownloadingUpdate.value = false;
+  }
+}
 
 // Toast notification
 const toast = ref({ show: false, message: "", type: "info" });
@@ -612,13 +758,38 @@ async function openWebGuiInBrowser() {
   openUrl(envStatus.value.webgui_url);
 }
 
+// Multi-destination Helpers
+function addExtraDestination() {
+  if (!syncForm.extraDests) syncForm.extraDests = [];
+  syncForm.extraDests.push({
+    id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+    path: ""
+  });
+}
+
+function removeExtraDestination(index) {
+  if (syncForm.extraDests && syncForm.extraDests[index] !== undefined) {
+    syncForm.extraDests.splice(index, 1);
+  }
+}
+
+function getAllDestinations() {
+  const extras = (syncForm.extraDests || []).map((d) => (d.path || "").trim());
+  const list = [syncForm.dest ? syncForm.dest.trim() : "", ...extras];
+  return list.filter(Boolean);
+}
+
 // Browse Native Local Folder
-async function pickLocalFolder(target = "source") {
+async function pickLocalFolder(target = "source", extraIndex = null) {
   try {
     const selected = await invoke("select_local_folder");
     if (selected) {
       if (target === "source") {
         syncForm.source = selected;
+      } else if (target === "extraDest" && extraIndex !== null) {
+        if (syncForm.extraDests && syncForm.extraDests[extraIndex]) {
+          syncForm.extraDests[extraIndex].path = selected;
+        }
       } else {
         syncForm.dest = selected;
       }
@@ -630,19 +801,33 @@ async function pickLocalFolder(target = "source") {
 }
 
 // Quick Select Remote Directly
-function pickRemoteDirect(remoteName, target = "source") {
+function pickRemoteDirect(remoteName, target = "source", extraIndex = null) {
   const remotePath = `${remoteName}:`;
   if (target === "source") {
     syncForm.source = remotePath;
+  } else if (target === "extraDest" && extraIndex !== null) {
+    if (syncForm.extraDests && syncForm.extraDests[extraIndex]) {
+      syncForm.extraDests[extraIndex].path = remotePath;
+    }
   } else {
     syncForm.dest = remotePath;
   }
 }
 
+const cloudBrowseExtraIndex = ref(null);
+
 // Cloud Directory Browser
-async function openCloudBrowseModal(target = "source") {
+async function openCloudBrowseModal(target = "source", extraIndex = null) {
   cloudBrowseTarget.value = target;
-  const currentVal = target === "source" ? syncForm.source : syncForm.dest;
+  cloudBrowseExtraIndex.value = extraIndex;
+  let currentVal = "";
+  if (target === "source") {
+    currentVal = syncForm.source;
+  } else if (target === "extraDest" && extraIndex !== null && syncForm.extraDests && syncForm.extraDests[extraIndex]) {
+    currentVal = syncForm.extraDests[extraIndex].path;
+  } else {
+    currentVal = syncForm.dest;
+  }
   if (currentVal && currentVal.includes(":") && !currentVal.startsWith("C:") && !currentVal.startsWith("D:")) {
     const parts = currentVal.split(":");
     cloudBrowseRemote.value = parts[0];
@@ -701,6 +886,10 @@ function confirmCloudBrowseSelect() {
     : `${cloudBrowseRemote.value}:`;
   if (cloudBrowseTarget.value === "source") {
     syncForm.source = finalPath;
+  } else if (cloudBrowseTarget.value === "extraDest" && cloudBrowseExtraIndex.value !== null) {
+    if (syncForm.extraDests && syncForm.extraDests[cloudBrowseExtraIndex.value]) {
+      syncForm.extraDests[cloudBrowseExtraIndex.value].path = finalPath;
+    }
   } else {
     syncForm.dest = finalPath;
   }
@@ -819,84 +1008,142 @@ async function handleCopySingleFile(filePath) {
   }
 }
 
-// Open Schedule Modal Pre-filled with Sync Settings
+// Open Schedule Modal or Batch Create from Sync Page
 function openScheduleFromSync() {
-  if (!syncForm.source || !syncForm.dest) {
-    showToast("請先選擇或填寫來源與目的路徑！", "error");
+  const allDests = getAllDestinations();
+  if (!syncForm.source || allDests.length === 0) {
+    showToast("請先選擇或填寫來源與至少一個目的路徑！", "error");
     return;
   }
   const cleanSrc = syncForm.source.replace(/[\\/]+$/, "");
-  const cleanDst = syncForm.dest.replace(/[\\/]+$/, "");
   const srcName = cleanSrc.split(/[\\/:]/).pop() || cleanSrc;
-  const dstName = cleanDst.split(/[\\/:]/).pop() || cleanDst;
 
-  newTask.name = `定時${syncForm.action === 'sync' ? '鏡像同步' : '增量備份'}: ${srcName} ➔ ${dstName}`;
-  newTask.source = syncForm.source.trim();
-  newTask.dest = syncForm.dest.trim();
-  newTask.action = syncForm.action;
-  newTask.excludeFilter = syncForm.excludeFilter ? syncForm.excludeFilter.trim() : "";
-  newTask.intervalMinutes = 60;
-  newTask.enabled = true;
-  showAddTaskModal.value = true;
+  if (allDests.length === 1) {
+    const cleanDst = allDests[0].replace(/[\\/]+$/, "");
+    const dstName = cleanDst.split(/[\\/:]/).pop() || cleanDst;
+    newTask.name = `定時${syncForm.action === 'sync' ? '鏡像同步' : '增量備份'}: ${srcName} ➔ ${dstName}`;
+    newTask.source = syncForm.source.trim();
+    newTask.dest = allDests[0];
+    newTask.action = syncForm.action;
+    newTask.excludeFilter = syncForm.excludeFilter ? syncForm.excludeFilter.trim() : "";
+    newTask.intervalMinutes = 60;
+    newTask.enabled = true;
+    showAddTaskModal.value = true;
+  } else {
+    let addedCount = 0;
+    for (const d of allDests) {
+      const cleanDst = d.replace(/[\\/]+$/, "");
+      const dstName = cleanDst.split(/[\\/:]/).pop() || cleanDst;
+      scheduledTasks.value.push({
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 5),
+        name: `定時${syncForm.action === 'sync' ? '同步' : '備份'}: ${srcName} ➔ ${dstName}`,
+        source: syncForm.source.trim(),
+        dest: d,
+        action: syncForm.action,
+        excludeFilter: syncForm.excludeFilter ? syncForm.excludeFilter.trim() : "",
+        intervalMinutes: 60,
+        enabled: true,
+        lastRun: "從未執行",
+        status: "待命"
+      });
+      addedCount++;
+    }
+    saveScheduledTasks();
+    showToast(`已成功為 ${addedCount} 個目的地建立背景排程任務！`, "success");
+    activeTab.value = "scheduler";
+  }
 }
 
-// RcloneView Plus Run Sync Job
+// RcloneView Plus Run Sync Job (Supports Multi-Destination)
 async function handleRunSync() {
-  if (!syncForm.source || !syncForm.dest) {
-    showToast("請先選擇或填寫來源與目標路徑！", "error");
+  const allDests = getAllDestinations();
+  if (!syncForm.source || allDests.length === 0) {
+    showToast("請先選擇或填寫來源與至少一個目的路徑！", "error");
     return;
   }
   syncForm.isRunning = true;
-  syncForm.taskLog = "正在執行任務中，請稍候...";
+  syncForm.taskLog = `正在執行同步任務中（共 ${allDests.length} 個目的地）...`;
 
   const excludePatterns = syncForm.excludeFilter
     ? syncForm.excludeFilter.split(",").map((s) => s.trim()).filter(Boolean)
     : null;
 
+  let successCount = 0;
+  let failCount = 0;
+  const logs = [];
+
   try {
-    const log = await invoke("run_sync_task", {
-      rclonePath: customRclonePath.value.trim() || null,
-      action: syncForm.action,
-      source: syncForm.source.trim(),
-      dest: syncForm.dest.trim(),
-      excludePatterns
-    });
-    syncForm.taskLog = log;
-    showToast("同步/備份任務執行成功！", "success");
+    for (let i = 0; i < allDests.length; i++) {
+      const curDest = allDests[i];
+      const prefix = `[${i + 1}/${allDests.length}]`;
+      showToast(`正在傳輸至目的地 ${prefix}: ${curDest}...`, "info");
+      logs.push(`==================================================`);
+      logs.push(`${prefix} 開始同步: ${syncForm.source.trim()} ➔ ${curDest}`);
+      logs.push(`==================================================`);
+      syncForm.taskLog = logs.join("\n");
 
-    // 若勾選自動加入排程，且尚未存在相同來源與目的之排程，則直接加入
-    if (syncForm.autoAddToScheduler) {
-      const cleanSrc = syncForm.source.replace(/[\\/]+$/, "");
-      const cleanDst = syncForm.dest.replace(/[\\/]+$/, "");
-      const srcName = cleanSrc.split(/[\\/:]/).pop() || cleanSrc;
-      const dstName = cleanDst.split(/[\\/:]/).pop() || cleanDst;
-
-      const exists = scheduledTasks.value.some(
-        (t) => t.source === syncForm.source.trim() && t.dest === syncForm.dest.trim()
-      );
-      if (!exists) {
-        const task = {
-          id: Date.now().toString(),
-          name: `自動${syncForm.action === 'sync' ? '同步' : '備份'}: ${srcName} ➔ ${dstName}`,
-          source: syncForm.source.trim(),
-          dest: syncForm.dest.trim(),
+      try {
+        const log = await invoke("run_sync_task", {
+          rclonePath: customRclonePath.value.trim() || null,
           action: syncForm.action,
-          excludeFilter: syncForm.excludeFilter ? syncForm.excludeFilter.trim() : "",
-          intervalMinutes: 60,
-          enabled: true,
-          lastRun: new Date().toLocaleTimeString(),
-          lastRunTs: Date.now(),
-          status: "成功完成"
-        };
-        scheduledTasks.value.push(task);
+          source: syncForm.source.trim(),
+          dest: curDest,
+          excludePatterns
+        });
+        logs.push(log || "任務執行完成！");
+        successCount++;
+      } catch (destErr) {
+        logs.push(`❌ 此目的地同步失敗: ${destErr}`);
+        failCount++;
+      }
+      syncForm.taskLog = logs.join("\n");
+    }
+
+    if (failCount === 0) {
+      showToast(`同步/備份全數成功！共傳輸至 ${successCount} 個目的地！`, "success");
+    } else {
+      showToast(`同步完成：${successCount} 個成功，${failCount} 個失敗，請檢視日誌！`, "warning");
+    }
+
+    // 若勾選自動加入排程，為所有目的地加入背景定時排程
+    if (syncForm.autoAddToScheduler) {
+      let addedCount = 0;
+      for (const curDest of allDests) {
+        const cleanSrc = syncForm.source.replace(/[\\/]+$/, "");
+        const cleanDst = curDest.replace(/[\\/]+$/, "");
+        const srcName = cleanSrc.split(/[\\/:]/).pop() || cleanSrc;
+        const dstName = cleanDst.split(/[\\/:]/).pop() || cleanDst;
+
+        const exists = scheduledTasks.value.some(
+          (t) => t.source === syncForm.source.trim() && t.dest === curDest
+        );
+        if (!exists) {
+          const task = {
+            id: Date.now().toString() + Math.random().toString(36).slice(2, 5),
+            name: `自動${syncForm.action === 'sync' ? '同步' : '備份'}: ${srcName} ➔ ${dstName}`,
+            source: syncForm.source.trim(),
+            dest: curDest,
+            action: syncForm.action,
+            excludeFilter: syncForm.excludeFilter ? syncForm.excludeFilter.trim() : "",
+            intervalMinutes: 60,
+            enabled: true,
+            lastRun: new Date().toLocaleTimeString(),
+            lastRunTs: Date.now(),
+            status: "成功完成"
+          };
+          scheduledTasks.value.push(task);
+          addedCount++;
+        }
+      }
+      if (addedCount > 0) {
         saveScheduledTasks();
-        showToast("同步成功！已為您自動加入背景定時排程 (每 60 分鐘自動執行)！", "success");
+        showToast(`已為您將 ${addedCount} 個目的地自動加入背景定時排程！`, "success");
       }
     }
 
     await handleCheckDiff();
   } catch (err) {
-    syncForm.taskLog = `錯誤: ${err}`;
+    syncForm.taskLog = `整體任務錯誤: ${err}`;
     showToast(`任務失敗: ${err}`, "error");
   } finally {
     syncForm.isRunning = false;
@@ -940,6 +1187,71 @@ function removeTask(id) {
 function toggleTaskEnabled(task) {
   task.enabled = !task.enabled;
   saveScheduledTasks();
+}
+
+function openEditTaskModal(task) {
+  editTaskForm.id = task.id;
+  editTaskForm.name = task.name || "";
+  editTaskForm.source = task.source || "";
+  editTaskForm.dest = task.dest || "";
+  editTaskForm.action = task.action || "copy";
+  editTaskForm.excludeFilter = task.excludeFilter || "";
+  editTaskForm.intervalMinutes = task.intervalMinutes || 60;
+  editTaskForm.enabled = task.enabled !== false;
+  showEditTaskModal.value = true;
+}
+
+function submitEditTask() {
+  if (!editTaskForm.name.trim() || !editTaskForm.source.trim() || !editTaskForm.dest.trim()) {
+    showToast("請填寫完整的任務資訊！", "error");
+    return;
+  }
+  const task = scheduledTasks.value.find((t) => t.id === editTaskForm.id);
+  if (!task) {
+    showToast("找不到對應的排程任務！", "error");
+    return;
+  }
+  task.name = editTaskForm.name.trim();
+  task.source = editTaskForm.source.trim();
+  task.dest = editTaskForm.dest.trim();
+  task.action = editTaskForm.action;
+  task.excludeFilter = editTaskForm.excludeFilter ? editTaskForm.excludeFilter.trim() : "";
+  task.intervalMinutes = Math.max(1, Number(editTaskForm.intervalMinutes) || 60);
+  task.enabled = editTaskForm.enabled;
+  saveScheduledTasks();
+  showEditTaskModal.value = false;
+  showToast("已成功更新排程任務設定！", "success");
+}
+
+async function executeTaskNow(task) {
+  if (task.status === "執行中...") {
+    showToast("任務正在執行中，請稍候...", "info");
+    return;
+  }
+  task.status = "執行中...";
+  task.lastRun = new Date().toLocaleTimeString();
+  task.lastRunTs = Date.now();
+  saveScheduledTasks();
+  showToast(`開始執行任務「${task.name}」...`, "info");
+  try {
+    const excludePatterns = task.excludeFilter
+      ? task.excludeFilter.split(",").map((s) => s.trim()).filter(Boolean)
+      : null;
+    await invoke("run_sync_task", {
+      rclonePath: customRclonePath.value.trim() || null,
+      action: task.action,
+      source: task.source,
+      dest: task.dest,
+      excludePatterns
+    });
+    task.status = "成功完成";
+    saveScheduledTasks();
+    showToast(`排程任務「${task.name}」執行成功！`, "success");
+  } catch (err) {
+    task.status = "執行失敗";
+    saveScheduledTasks();
+    showToast(`任務「${task.name}」失敗: ${err}`, "error");
+  }
 }
 
 function saveScheduledTasks() {
@@ -1050,6 +1362,9 @@ onMounted(async () => {
   await checkAutostart();
   await refreshAll(true);
   schedulerTimer = setInterval(runSchedulerCycle, 60000);
+  setTimeout(() => {
+    checkForUpdates(false);
+  }, 2500);
 });
 
 onUnmounted(() => {
@@ -1113,6 +1428,16 @@ onUnmounted(() => {
 
       <!-- Global Actions -->
       <div class="header-actions">
+        <button
+          class="btn btn-secondary"
+          @click="checkForUpdates(true)"
+          :disabled="isCheckingUpdate"
+          title="檢查 GitHub 最新版本"
+        >
+          <DownloadCloud class="btn-icon" :class="{ 'spin-anim': isCheckingUpdate }" />
+          <span class="btn-text-hide-sm">檢查更新</span>
+        </button>
+
         <button class="btn btn-secondary" @click="toggleTheme" :title="isLightMode ? '切換為深色主題' : '切換為淺色主題'">
           <Sun v-if="isLightMode" class="btn-icon text-amber" />
           <Moon v-else class="btn-icon" />
@@ -1501,9 +1826,13 @@ onUnmounted(() => {
             </div>
 
             <!-- Destination Input -->
+            <!-- Destination Input (Primary) -->
             <div class="form-group-compact">
               <div class="field-label-row">
-                <label class="field-label">目的路徑 (Destination)</label>
+                <div class="dest-label-with-tag">
+                  <label class="field-label">目的路徑 1 (主要 Destination)</label>
+                  <span class="badge-tag">主要</span>
+                </div>
                 <div class="quick-links-group" v-if="remotes.length > 0">
                   <span class="quick-link-label">快速雲端:</span>
                   <button
@@ -1541,6 +1870,79 @@ onUnmounted(() => {
                   <span>選擇雲端</span>
                 </button>
               </div>
+            </div>
+
+            <!-- Extra Destinations (Multi-Destination Support) -->
+            <div
+              v-for="(extra, idx) in syncForm.extraDests"
+              :key="extra.id"
+              class="form-group-compact extra-dest-group"
+            >
+              <div class="field-label-row">
+                <div class="dest-label-with-tag">
+                  <label class="field-label">目的路徑 {{ idx + 2 }} (其他遠端/本機資料夾)</label>
+                  <span class="badge-tag badge-cyan">額外</span>
+                </div>
+                <div class="quick-links-group" v-if="remotes.length > 0">
+                  <span class="quick-link-label">快速雲端:</span>
+                  <button
+                    v-for="r in remotes.slice(0, 3)"
+                    :key="r.name"
+                    class="btn-tag"
+                    @click="pickRemoteDirect(r.name, 'extraDest', idx)"
+                    :title="`將此目的設定為 ${r.name}:`"
+                  >
+                    {{ r.name }}:
+                  </button>
+                </div>
+              </div>
+              <div class="input-with-actions">
+                <input
+                  type="text"
+                  v-model="extra.path"
+                  class="modal-input"
+                  :placeholder="`例如：E:\\Backup 或 OneDrive:Backup${idx + 2}`"
+                />
+                <button
+                  class="btn btn-browse"
+                  @click="pickLocalFolder('extraDest', idx)"
+                  title="從本機檔案總管瀏覽選擇資料夾"
+                >
+                  <FolderOpen class="btn-icon" />
+                  <span>瀏覽本機</span>
+                </button>
+                <button
+                  class="btn btn-browse-cloud"
+                  @click="openCloudBrowseModal('extraDest', idx)"
+                  title="選擇並深入瀏覽已建立的雲端硬碟目錄"
+                >
+                  <Cloud class="btn-icon" />
+                  <span>選擇雲端</span>
+                </button>
+                <button
+                  class="btn btn-danger-outline"
+                  @click="removeExtraDestination(idx)"
+                  title="移除此目的地"
+                >
+                  <Trash2 class="btn-icon" />
+                  <span>移除</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Add Destination Button Action Row -->
+            <div class="add-destination-row">
+              <button
+                type="button"
+                class="btn btn-secondary btn-add-dest"
+                @click="addExtraDestination"
+              >
+                <FolderPlus class="btn-icon" />
+                <span>＋ 新增目的地（Add Destination）</span>
+              </button>
+              <span class="dest-count-hint" v-if="syncForm.extraDests && syncForm.extraDests.length > 0">
+                目前共設定 {{ (syncForm.extraDests ? syncForm.extraDests.length : 0) + 1 }} 個同步目的地，執行時將依序傳輸至各目標位置。
+              </span>
             </div>
           </div>
 
@@ -1925,10 +2327,35 @@ onUnmounted(() => {
                 <td>{{ task.lastRun || '從未執行' }}</td>
                 <td>
                   <div class="table-actions">
-                    <button class="btn btn-secondary btn-sm" @click="toggleTaskEnabled(task)">
+                    <button
+                      class="btn btn-secondary btn-sm"
+                      @click="executeTaskNow(task)"
+                      :disabled="task.status === '執行中...'"
+                      title="立即執行一次此排程任務"
+                    >
+                      <Play class="btn-icon" />
+                      <span>執行</span>
+                    </button>
+                    <button
+                      class="btn btn-secondary btn-sm"
+                      @click="openEditTaskModal(task)"
+                      title="修改排程任務設定"
+                    >
+                      <Pencil class="btn-icon" />
+                      <span>修改</span>
+                    </button>
+                    <button
+                      class="btn btn-secondary btn-sm"
+                      @click="toggleTaskEnabled(task)"
+                      :title="task.enabled ? '暫停定時排程' : '啟用定時排程'"
+                    >
                       {{ task.enabled ? '停用' : '啟用' }}
                     </button>
-                    <button class="btn btn-danger btn-sm" @click="removeTask(task.id)">
+                    <button
+                      class="btn btn-danger btn-sm"
+                      @click="removeTask(task.id)"
+                      title="刪除此排程任務"
+                    >
                       <Trash2 class="btn-icon" />
                     </button>
                   </div>
@@ -2265,6 +2692,65 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- MODAL: EDIT TASK (SCHEDULER) -->
+    <div v-if="showEditTaskModal" class="modal-backdrop" @click.self="showEditTaskModal = false">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="modal-title">
+            <Pencil class="modal-title-icon" />
+            <span>修改排程任務</span>
+          </div>
+          <button class="close-btn" @click="showEditTaskModal = false">
+            <X class="close-icon" />
+          </button>
+        </div>
+
+        <div class="modal-body">
+          <div class="setting-group">
+            <label class="group-title">任務名稱</label>
+            <input type="text" v-model="editTaskForm.name" class="modal-input" placeholder="例如：每日照片自動備份" />
+          </div>
+          <div class="setting-group">
+            <label class="group-title">來源路徑 (Source)</label>
+            <input type="text" v-model="editTaskForm.source" class="modal-input" placeholder="例如：D:\Photos 或 GDrive_alanytp100:Photos" />
+          </div>
+          <div class="setting-group">
+            <label class="group-title">目的路徑 (Destination)</label>
+            <input type="text" v-model="editTaskForm.dest" class="modal-input" placeholder="例如：GPhoto_alanytp100:Backup" />
+          </div>
+          <div class="setting-group">
+            <label class="group-title">動作模式</label>
+            <select v-model="editTaskForm.action" class="modal-input">
+              <option value="copy">Copy (增量備份，不刪除目的端檔案)</option>
+              <option value="sync">Sync (完全鏡像同步，目的端檔案與來源一致)</option>
+            </select>
+          </div>
+          <div class="setting-group">
+            <label class="group-title">排除檔案過濾規則 (選填)</label>
+            <input type="text" v-model="editTaskForm.excludeFilter" class="modal-input" placeholder="例如：*.tmp, *.bak, thumbs.db, node_modules/**" />
+            <span class="field-hint">若有輸入，排程執行時將自動略過符合的檔案</span>
+          </div>
+          <div class="setting-group">
+            <label class="group-title">執行頻率 (分鐘)</label>
+            <input type="number" v-model="editTaskForm.intervalMinutes" class="modal-input" min="1" placeholder="60" />
+            <span class="field-hint">每隔多少分鐘自動執行一次 (建議 60 分鐘以上)</span>
+          </div>
+          <div class="setting-group">
+            <label class="group-title">任務狀態</label>
+            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+              <input type="checkbox" v-model="editTaskForm.enabled" />
+              <span>啟用此定時排程任務</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="showEditTaskModal = false">取消</button>
+          <button class="btn btn-primary" @click="submitEditTask">儲存修改</button>
+        </div>
+      </div>
+    </div>
+
     <!-- MODAL: SETTINGS -->
     <div v-if="showSettings" class="modal-backdrop" @click.self="showSettings = false">
       <div class="modal-card">
@@ -2332,6 +2818,58 @@ onUnmounted(() => {
                 @click="toggleTheme"
               >
                 <span class="toggle-slider"></span>
+              </button>
+            </div>
+          </div>
+
+          <!-- GitHub Release Update Settings -->
+          <div class="setting-group">
+            <div class="switch-row">
+              <div>
+                <div class="switch-title">自動檢查 GitHub 最新版本</div>
+                <div class="group-desc">
+                  目前版本：v{{ CURRENT_VERSION }} • 上次檢查：{{ updateSettings.lastCheckTimeStr }}
+                </div>
+              </div>
+              <button
+                class="toggle-switch"
+                :class="{ active: updateSettings.enabled }"
+                @click="toggleUpdateEnabled"
+              >
+                <span class="toggle-slider"></span>
+              </button>
+            </div>
+          </div>
+
+          <div class="setting-group" v-if="updateSettings.enabled">
+            <label class="group-title">版本檢查頻率</label>
+            <p class="group-desc">設定背景向 GitHub Releases 自動檢查新版本的間隔週期</p>
+            <select
+              v-model.number="updateSettings.intervalDays"
+              @change="saveUpdateSettings"
+              class="modal-input"
+            >
+              <option :value="1">每天檢查一次</option>
+              <option :value="3">每 3 天檢查一次</option>
+              <option :value="7">每週檢查一次 (預設)</option>
+              <option :value="14">每兩週檢查一次</option>
+              <option :value="30">每月檢查一次</option>
+            </select>
+          </div>
+
+          <div class="setting-group">
+            <div class="switch-row">
+              <div>
+                <div class="switch-title">手動檢查最新版本</div>
+                <div class="group-desc">即時連線 GitHub 查詢是否有新版釋出</div>
+              </div>
+              <button
+                class="btn btn-secondary btn-sm"
+                @click="checkForUpdates(true)"
+                :disabled="isCheckingUpdate"
+              >
+                <RefreshCw class="btn-icon" :class="{ 'spin-anim': isCheckingUpdate }" />
+                <span>{{ isCheckingUpdate ? '檢查中...' : '檢查更新' }}</span>
               </button>
             </div>
           </div>
@@ -2419,6 +2957,61 @@ onUnmounted(() => {
           <button class="btn btn-secondary" @click="showCloudBrowseModal = false">取消</button>
           <button class="btn btn-primary" @click="confirmCloudBrowseSelect">
             <span>選擇此路徑 ({{ cloudBrowseRemote }}:{{ cloudBrowseCurrentSubpath ? '/' + cloudBrowseCurrentSubpath : '' }})</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: UPDATE AVAILABLE -->
+    <div v-if="showUpdateModal" class="modal-backdrop" @click.self="showUpdateModal = false">
+      <div class="modal-card update-modal-card">
+        <div class="modal-header">
+          <div class="modal-title">
+            <DownloadCloud class="modal-title-icon text-cyan" />
+            <span>發現新版本更新 (v{{ updateInfo.latestVersion }})</span>
+          </div>
+          <button class="close-btn" @click="showUpdateModal = false">
+            <X class="close-icon" />
+          </button>
+        </div>
+
+        <div class="modal-body">
+          <div class="update-banner">
+            <div class="update-version-tag">
+              <span class="old-ver">v{{ updateInfo.currentVersion }}</span>
+              <ArrowRight class="ver-arrow" />
+              <span class="new-ver">v{{ updateInfo.latestVersion }}</span>
+            </div>
+            <div class="update-date" v-if="updateInfo.publishedAt">
+              發布日期：{{ updateInfo.publishedAt }}
+            </div>
+          </div>
+
+          <div class="update-release-title" v-if="updateInfo.releaseTitle">
+            {{ updateInfo.releaseTitle }}
+          </div>
+
+          <div class="update-notes-container">
+            <div class="update-notes-header">更新說明與改版內容：</div>
+            <pre class="update-notes-pre">{{ updateInfo.releaseNotes }}</pre>
+          </div>
+
+          <p class="update-tip">
+            點擊下方「下載更新並執行」，系統將自動下載最新安裝程式並啟動更新。您也可以直接前往 GitHub 頁面查看或手動下載。
+          </p>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="showUpdateModal = false" :disabled="isDownloadingUpdate">
+            稍後提醒
+          </button>
+          <button class="btn btn-secondary" @click="openUrl(updateInfo.htmlUrl)">
+            <ExternalLink class="btn-icon" />
+            <span>在 GitHub 查看</span>
+          </button>
+          <button class="btn btn-primary btn-update-action" @click="executeUpdate" :disabled="isDownloadingUpdate">
+            <DownloadCloud class="btn-icon" :class="{ 'spin-anim': isDownloadingUpdate }" />
+            <span>{{ isDownloadingUpdate ? '正在下載更新中...' : '下載更新並執行' }}</span>
           </button>
         </div>
       </div>
@@ -4428,5 +5021,169 @@ onUnmounted(() => {
 .cloud-dir-name {
   font-size: 12px;
   font-weight: 500;
+}
+
+/* Multi-destination styling */
+.badge-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.badge-cyan {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.dest-label-with-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.extra-dest-group {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-card);
+}
+
+.add-destination-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.btn-add-dest {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(56, 189, 248, 0.1);
+  color: #38bdf8;
+  border: 1px dashed rgba(56, 189, 248, 0.4);
+  transition: all 0.2s ease;
+}
+
+.btn-add-dest:hover {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+}
+
+.dest-count-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Update Modal Styling */
+.update-modal-card {
+  max-width: 580px;
+}
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(16, 185, 129, 0.08));
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  margin-bottom: 14px;
+}
+
+.update-version-tag {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.old-ver {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.ver-arrow {
+  width: 16px;
+  height: 16px;
+  color: #38bdf8;
+}
+
+.new-ver {
+  color: #10b981;
+  font-size: 16px;
+  background: rgba(16, 185, 129, 0.2);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.update-date {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.update-release-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 10px;
+}
+
+.update-notes-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.update-notes-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.update-notes-pre {
+  max-height: 160px;
+  overflow-y: auto;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-main);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+
+.update-tip {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.btn-update-action {
+  background: linear-gradient(135deg, #0284c7, #059669);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+}
+
+.btn-update-action:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+@media (max-width: 900px) {
+  .btn-text-hide-sm {
+    display: none;
+  }
 }
 </style>

@@ -408,6 +408,48 @@ async fn auto_install_winfsp() -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn download_and_install_update(download_url: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let script = format!(
+            r#"
+            $ErrorActionPreference = 'Stop'
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            $url = "{}"
+            $fileName = [System.IO.Path]::GetFileName($url.Split('?')[0])
+            if (-not $fileName -or ($fileName -notmatch '\.exe$' -and $fileName -notmatch '\.msi$')) {{
+                $fileName = "RcloneDrive-update.exe"
+            }}
+            $tempFile = Join-Path $env:TEMP $fileName
+            Invoke-WebRequest -Uri $url -OutFile $tempFile -UseBasicParsing
+            if (-not (Test-Path $tempFile)) {{
+                throw "下載完成但無法在暫存目錄找到檔案"
+            }}
+            if ($tempFile.EndsWith(".msi")) {{
+                Start-Process msiexec.exe -ArgumentList "/i `"$tempFile`""
+            }} else {{
+                Start-Process -FilePath $tempFile
+            }}
+            Write-Output "OK"
+        "#,
+            download_url.replace('"', "`\"")
+        );
+
+        let mut cmd = Command::new("powershell.exe");
+        cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let output = cmd.output().map_err(|e| format!("執行更新程式失敗: {}", e))?;
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            let out = String::from_utf8_lossy(&output.stdout);
+            return Err(format!("下載或啟動更新失敗: {} {}", err.trim(), out.trim()));
+        }
+        Ok("更新安裝程式已成功啟動".to_string())
+    })
+    .await
+    .map_err(|e| format!("執行緒錯誤: {}", e))?
+}
+
+#[tauri::command]
 fn check_environment(state: State<'_, AppState>, rclone_path: Option<String>) -> EnvironmentStatus {
     let exe = resolve_rclone_path(rclone_path);
     let mut status = EnvironmentStatus {
@@ -1525,6 +1567,7 @@ pub fn run() {
             apply_mounted_drive_icons,
             auto_install_rclone,
             auto_install_winfsp,
+            download_and_install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
