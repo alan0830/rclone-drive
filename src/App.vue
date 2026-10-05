@@ -1825,124 +1825,126 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <!-- Destination Input -->
-            <!-- Destination Input (Primary) -->
-            <div class="form-group-compact">
-              <div class="field-label-row">
-                <div class="dest-label-with-tag">
-                  <label class="field-label">目的路徑 1 (主要 Destination)</label>
-                  <span class="badge-tag">主要</span>
+            <!-- Destination Column (Right Column: Primary + Extras + Add Button) -->
+            <div class="destinations-col">
+              <!-- Destination Input (Primary) -->
+              <div class="form-group-compact">
+                <div class="field-label-row">
+                  <div class="dest-label-with-tag">
+                    <label class="field-label">目的路徑 1 (主要 Destination)</label>
+                    <span class="badge-tag">主要</span>
+                  </div>
+                  <div class="quick-links-group" v-if="remotes.length > 0">
+                    <span class="quick-link-label">快速雲端:</span>
+                    <button
+                      v-for="r in remotes.slice(0, 3)"
+                      :key="r.name"
+                      class="btn-tag"
+                      @click="pickRemoteDirect(r.name, 'dest')"
+                      :title="`將目的設定為 ${r.name}:`"
+                    >
+                      {{ r.name }}:
+                    </button>
+                  </div>
                 </div>
-                <div class="quick-links-group" v-if="remotes.length > 0">
-                  <span class="quick-link-label">快速雲端:</span>
+                <div class="input-with-actions">
+                  <input
+                    type="text"
+                    v-model="syncForm.dest"
+                    class="modal-input"
+                    placeholder="例如：D:\Backup 或 GDrive:Backup"
+                  />
                   <button
-                    v-for="r in remotes.slice(0, 3)"
-                    :key="r.name"
-                    class="btn-tag"
-                    @click="pickRemoteDirect(r.name, 'dest')"
-                    :title="`將目的設定為 ${r.name}:`"
+                    class="btn btn-browse"
+                    @click="pickLocalFolder('dest')"
+                    title="從本機檔案總管瀏覽選擇資料夾"
                   >
-                    {{ r.name }}:
+                    <FolderOpen class="btn-icon" />
+                    <span>瀏覽本機</span>
+                  </button>
+                  <button
+                    class="btn btn-browse-cloud"
+                    @click="openCloudBrowseModal('dest')"
+                    title="選擇並深入瀏覽已建立的雲端硬碟目錄"
+                  >
+                    <Cloud class="btn-icon" />
+                    <span>選擇雲端</span>
                   </button>
                 </div>
               </div>
-              <div class="input-with-actions">
-                <input
-                  type="text"
-                  v-model="syncForm.dest"
-                  class="modal-input"
-                  placeholder="例如：D:\Backup 或 GDrive:Backup"
-                />
-                <button
-                  class="btn btn-browse"
-                  @click="pickLocalFolder('dest')"
-                  title="從本機檔案總管瀏覽選擇資料夾"
-                >
-                  <FolderOpen class="btn-icon" />
-                  <span>瀏覽本機</span>
-                </button>
-                <button
-                  class="btn btn-browse-cloud"
-                  @click="openCloudBrowseModal('dest')"
-                  title="選擇並深入瀏覽已建立的雲端硬碟目錄"
-                >
-                  <Cloud class="btn-icon" />
-                  <span>選擇雲端</span>
-                </button>
-              </div>
-            </div>
 
-            <!-- Extra Destinations (Multi-Destination Support) -->
-            <div
-              v-for="(extra, idx) in syncForm.extraDests"
-              :key="extra.id"
-              class="form-group-compact extra-dest-group"
-            >
-              <div class="field-label-row">
-                <div class="dest-label-with-tag">
-                  <label class="field-label">目的路徑 {{ idx + 2 }} (其他遠端/本機資料夾)</label>
-                  <span class="badge-tag badge-cyan">額外</span>
-                </div>
-                <div class="quick-links-group" v-if="remotes.length > 0">
-                  <span class="quick-link-label">快速雲端:</span>
-                  <button
-                    v-for="r in remotes.slice(0, 3)"
-                    :key="r.name"
-                    class="btn-tag"
-                    @click="pickRemoteDirect(r.name, 'extraDest', idx)"
-                    :title="`將此目的設定為 ${r.name}:`"
-                  >
-                    {{ r.name }}:
-                  </button>
-                </div>
-              </div>
-              <div class="input-with-actions">
-                <input
-                  type="text"
-                  v-model="extra.path"
-                  class="modal-input"
-                  :placeholder="`例如：E:\\Backup 或 OneDrive:Backup${idx + 2}`"
-                />
-                <button
-                  class="btn btn-browse"
-                  @click="pickLocalFolder('extraDest', idx)"
-                  title="從本機檔案總管瀏覽選擇資料夾"
-                >
-                  <FolderOpen class="btn-icon" />
-                  <span>瀏覽本機</span>
-                </button>
-                <button
-                  class="btn btn-browse-cloud"
-                  @click="openCloudBrowseModal('extraDest', idx)"
-                  title="選擇並深入瀏覽已建立的雲端硬碟目錄"
-                >
-                  <Cloud class="btn-icon" />
-                  <span>選擇雲端</span>
-                </button>
-                <button
-                  class="btn btn-danger-outline"
-                  @click="removeExtraDestination(idx)"
-                  title="移除此目的地"
-                >
-                  <Trash2 class="btn-icon" />
-                  <span>移除</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- Add Destination Button Action Row -->
-            <div class="add-destination-row">
-              <button
-                type="button"
-                class="btn btn-secondary btn-add-dest"
-                @click="addExtraDestination"
+              <!-- Extra Destinations (Multi-Destination Support) -->
+              <div
+                v-for="(extra, idx) in syncForm.extraDests"
+                :key="extra.id"
+                class="form-group-compact extra-dest-group"
               >
-                <FolderPlus class="btn-icon" />
-                <span>＋ 新增目的地（Add Destination）</span>
-              </button>
-              <span class="dest-count-hint" v-if="syncForm.extraDests && syncForm.extraDests.length > 0">
-                目前共設定 {{ (syncForm.extraDests ? syncForm.extraDests.length : 0) + 1 }} 個同步目的地，執行時將依序傳輸至各目標位置。
-              </span>
+                <div class="field-label-row">
+                  <div class="dest-label-with-tag">
+                    <label class="field-label">目的路徑 {{ idx + 2 }} (其他遠端/本機資料夾)</label>
+                    <span class="badge-tag badge-cyan">額外</span>
+                  </div>
+                  <div class="quick-links-group" v-if="remotes.length > 0">
+                    <span class="quick-link-label">快速雲端:</span>
+                    <button
+                      v-for="r in remotes.slice(0, 3)"
+                      :key="r.name"
+                      class="btn-tag"
+                      @click="pickRemoteDirect(r.name, 'extraDest', idx)"
+                      :title="`將此目的設定為 ${r.name}:`"
+                    >
+                      {{ r.name }}:
+                    </button>
+                  </div>
+                </div>
+                <div class="input-with-actions">
+                  <input
+                    type="text"
+                    v-model="extra.path"
+                    class="modal-input"
+                    :placeholder="`例如：E:\\Backup 或 OneDrive:Backup${idx + 2}`"
+                  />
+                  <button
+                    class="btn btn-browse"
+                    @click="pickLocalFolder('extraDest', idx)"
+                    title="從本機檔案總管瀏覽選擇資料夾"
+                  >
+                    <FolderOpen class="btn-icon" />
+                    <span>瀏覽本機</span>
+                  </button>
+                  <button
+                    class="btn btn-browse-cloud"
+                    @click="openCloudBrowseModal('extraDest', idx)"
+                    title="選擇並深入瀏覽已建立的雲端硬碟目錄"
+                  >
+                    <Cloud class="btn-icon" />
+                    <span>選擇雲端</span>
+                  </button>
+                  <button
+                    class="btn btn-danger-outline"
+                    @click="removeExtraDestination(idx)"
+                    title="移除此目的地"
+                  >
+                    <Trash2 class="btn-icon" />
+                    <span>移除</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Add Destination Button Action Row (Directly below destination inputs) -->
+              <div class="add-destination-row">
+                <button
+                  type="button"
+                  class="btn btn-add-dest"
+                  @click="addExtraDestination"
+                >
+                  <FolderPlus class="btn-icon" />
+                  <span>＋ 新增目的地 (Add Destination)</span>
+                </button>
+                <span class="dest-count-hint" v-if="syncForm.extraDests && syncForm.extraDests.length > 0">
+                  目前共設定 {{ (syncForm.extraDests ? syncForm.extraDests.length : 0) + 1 }} 個同步目的地，執行時將依序傳輸至各目標位置。
+                </span>
+              </div>
             </div>
           </div>
 
@@ -5046,8 +5048,13 @@ onUnmounted(() => {
   gap: 8px;
 }
 
+.destinations-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .extra-dest-group {
-  margin-top: 10px;
   padding-top: 10px;
   border-top: 1px dashed var(--border-card);
 }
@@ -5056,24 +5063,35 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 10px;
-  margin-bottom: 6px;
+  margin-top: 4px;
+  margin-bottom: 4px;
   flex-wrap: wrap;
 }
 
 .btn-add-dest {
-  padding: 6px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 15px;
   font-size: 12px;
   font-weight: 600;
-  background: rgba(56, 189, 248, 0.1);
-  color: #38bdf8;
-  border: 1px dashed rgba(56, 189, 248, 0.4);
-  transition: all 0.2s ease;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, #f59e0b, #ea580c);
+  color: #ffffff;
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .btn-add-dest:hover {
-  background: rgba(56, 189, 248, 0.2);
-  border-color: #38bdf8;
+  filter: brightness(1.12);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.45);
+  transform: translateY(-1px);
+}
+
+.btn-add-dest:active {
+  transform: translateY(0);
 }
 
 .dest-count-hint {
