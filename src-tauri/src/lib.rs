@@ -1,7 +1,9 @@
 use std::collections::HashMap;
+use std::fs;
+use std::io::{Read, Write};
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
@@ -516,6 +518,125 @@ fn get_remotes(
     Ok(remotes)
 }
 
+fn get_rclone_conf_path(exe: &str) -> Option<PathBuf> {
+    let mut cmd = Command::new(exe);
+    cmd.args(["config", "file"]);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    if let Ok(output) = cmd.output() {
+        if output.status.success() {
+            let out_str = String::from_utf8_lossy(&output.stdout);
+            for line in out_str.lines() {
+                let trimmed = line.trim();
+                if trimmed.ends_with("rclone.conf") && Path::new(trimmed).exists() {
+                    return Some(PathBuf::from(trimmed));
+                }
+            }
+        }
+    }
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let p = PathBuf::from(appdata).join("rclone").join("rclone.conf");
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    if let Ok(userprofile) = std::env::var("USERPROFILE") {
+        let p = PathBuf::from(userprofile).join(".config").join("rclone").join("rclone.conf");
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+fn auto_heal_onedrive_config(exe: &str, remote_name: &str) -> Result<(), String> {
+    let conf_path = match get_rclone_conf_path(exe) {
+        Some(p) => p,
+        None => return Ok(()),
+    };
+    if !conf_path.exists() {
+        return Ok(());
+    }
+    let content = fs::read_to_string(&conf_path).map_err(|e| e.to_string())?;
+
+    let section_header = format!("[{}]", remote_name);
+    let sec_start = match content.find(&section_header) {
+        Some(idx) => idx,
+        None => return Ok(()),
+    };
+
+    let rest = &content[sec_start..];
+    let next_sec = rest[1..].find('[').map(|idx| idx + 1).unwrap_or(rest.len());
+    let sec_body = &rest[..next_sec];
+
+    let is_onedrive = sec_body.lines().any(|l| {
+        let t = l.trim().to_lowercase();
+        t == "type = onedrive" || t == "type=onedrive"
+    });
+    if !is_onedrive {
+        return Ok(());
+    }
+
+    let has_drive_id = sec_body.lines().any(|l| l.trim().starts_with("drive_id"));
+    let has_drive_type = sec_body.lines().any(|l| l.trim().starts_with("drive_type"));
+    if has_drive_id && has_drive_type {
+        return Ok(());
+    }
+
+    let token_line = sec_body.lines().find(|l| l.trim().starts_with("token"));
+    let json_part = match token_line.and_then(|tl| tl.split_once('=')) {
+        Some((_, val)) => val.trim(),
+        None => return Ok(()),
+    };
+
+    let parsed: serde_json::Value = match serde_json::from_str(json_part) {
+        Ok(v) => v,
+        Err(_) => return Ok(()),
+    };
+
+    let access_token = match parsed.get("access_token").and_then(|a| a.as_str()) {
+        Some(t) => t,
+        None => return Ok(()),
+    };
+
+    let ps_script = format!(
+        r#"$token = '{}'; $h = @{{ Authorization = "Bearer $token" }}; $r = Invoke-RestMethod -Uri "https://graph.microsoft.com/v1.0/me/drive" -Headers $h -TimeoutSec 10; "$($r.id)|$($r.driveType)""#,
+        access_token.replace('\'', "''")
+    );
+
+    let mut cmd = Command::new("powershell");
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &ps_script]);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    if let Ok(output) = cmd.output() {
+        if output.status.success() {
+            let res = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if let Some((d_id, d_type)) = res.split_once('|') {
+                let d_id = d_id.trim();
+                let d_type = d_type.trim();
+                if !d_id.is_empty() {
+                    let mut new_lines = Vec::new();
+                    let mut inserted = false;
+                    for line in content.lines() {
+                        new_lines.push(line.to_string());
+                        if line.trim() == section_header && !inserted {
+                            if !has_drive_id {
+                                new_lines.push(format!("drive_id = {}", d_id));
+                            }
+                            if !has_drive_type {
+                                new_lines.push(format!("drive_type = {}", if d_type.is_empty() { "personal" } else { d_type }));
+                            }
+                            inserted = true;
+                        }
+                    }
+                    let _ = fs::write(&conf_path, new_lines.join("\r\n"));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 fn mount_remote(
     state: State<'_, AppState>,
@@ -545,6 +666,9 @@ fn mount_remote(
     let v_name = volname.unwrap_or_else(|| remote.clone());
     let c_mode = cache_mode.unwrap_or_else(|| "full".to_string());
 
+    // Auto-heal onedrive drive_id if missing before mounting
+    let _ = auto_heal_onedrive_config(&exe, &remote);
+
     let mut cmd = Command::new(&exe);
     cmd.arg("mount");
     cmd.arg(format!("{}:", remote));
@@ -560,6 +684,7 @@ fn mount_remote(
     }
 
     cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd.stderr(Stdio::piped());
 
     let mut child = cmd.spawn().map_err(|e| format!("啟動 rclone 掛載行程失敗: {}", e))?;
     let pid = child.id();
@@ -568,7 +693,16 @@ fn mount_remote(
     for _ in 0..30 {
         thread::sleep(Duration::from_millis(300));
         if let Ok(Some(status)) = child.try_wait() {
-            return Err(format!("掛載失敗: rclone 行程已退出 (狀態碼: {:?})。請確認代號是否衝突或設定是否有效。", status.code()));
+            let mut err_msg = String::new();
+            if let Some(mut stderr) = child.stderr.take() {
+                let _ = stderr.read_to_string(&mut err_msg);
+            }
+            let detail = if err_msg.trim().is_empty() {
+                format!("狀態碼: {:?}", status.code())
+            } else {
+                err_msg.trim().to_string()
+            };
+            return Err(format!("掛載失敗: rclone 行程已退出 ({detail})。請確認代號是否衝突或設定是否有效。"));
         }
         if Path::new(&root_path).exists() {
             mounted = true;
@@ -656,65 +790,55 @@ fn unmount_all(state: State<'_, AppState>) -> Result<usize, String> {
 
 // GUI Remote Creation
 #[tauri::command]
-fn create_remote_gui(
+async fn create_remote_gui(
     rclone_path: Option<String>,
     name: String,
     remote_type: String,
     params: HashMap<String, String>,
 ) -> Result<String, String> {
-    let exe = resolve_rclone_path(rclone_path);
-    let mut cmd = Command::new(&exe);
-    cmd.arg("config");
-    cmd.arg("create");
-    cmd.arg(&name);
-    cmd.arg(&remote_type);
+    tauri::async_runtime::spawn_blocking(move || {
+        let exe = resolve_rclone_path(rclone_path);
+        let mut cmd = Command::new(&exe);
+        cmd.arg("config");
+        cmd.arg("create");
+        cmd.arg(&name);
+        cmd.arg(&remote_type);
 
-    for (k, v) in params {
-        if !v.trim().is_empty() {
-            cmd.arg(k);
-            cmd.arg(v);
-        }
-    }
-
-    cmd.creation_flags(CREATE_NO_WINDOW);
-
-    let output = cmd.output().map_err(|e| format!("執行 rclone config create 失敗: {}", e))?;
-    if output.status.success() {
-        Ok(format!("成功建立遠端 '{}'！", name))
-    } else {
-        let err = String::from_utf8_lossy(&output.stderr);
-        Err(format!("建立失敗: {}", err))
-    }
-}
-
-fn get_rclone_conf_path(exe: &str) -> Option<PathBuf> {
-    let mut cmd = Command::new(exe);
-    cmd.args(["config", "file"]);
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    if let Ok(output) = cmd.output() {
-        if output.status.success() {
-            let out_str = String::from_utf8_lossy(&output.stdout);
-            for line in out_str.lines() {
-                let trimmed = line.trim();
-                if trimmed.ends_with("rclone.conf") && Path::new(trimmed).exists() {
-                    return Some(PathBuf::from(trimmed));
-                }
+        for (k, v) in params {
+            if !v.trim().is_empty() {
+                cmd.arg(k);
+                cmd.arg(v);
             }
         }
-    }
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        let p = PathBuf::from(appdata).join("rclone").join("rclone.conf");
-        if p.exists() {
-            return Some(p);
+
+        let is_onedrive = remote_type.to_lowercase().contains("onedrive");
+        if is_onedrive {
+            cmd.stdin(Stdio::piped());
         }
-    }
-    if let Ok(userprofile) = std::env::var("USERPROFILE") {
-        let p = PathBuf::from(userprofile).join(".config").join("rclone").join("rclone.conf");
-        if p.exists() {
-            return Some(p);
+
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let mut child = cmd.spawn().map_err(|e| format!("執行 rclone config create 失敗: {}", e))?;
+
+        if is_onedrive {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(b"1\n0\ny\n");
+            }
         }
-    }
-    None
+
+        let output = child.wait_with_output().map_err(|e| format!("等待建立失敗: {}", e))?;
+        if output.status.success() {
+            if is_onedrive {
+                let _ = auto_heal_onedrive_config(&exe, &name);
+            }
+            Ok(format!("成功建立遠端 '{}'！", name))
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            Err(format!("建立失敗: {}", err))
+        }
+    })
+    .await
+    .map_err(|e| format!("執行建立失敗: {}", e))?
 }
 
 // GUI Remote Config Update & Optional Rename
@@ -831,22 +955,33 @@ fn update_remote_gui(
 
 // GUI Remote Reconnect (OAuth Refresh via Browser)
 #[tauri::command]
-fn reconnect_remote_gui(
+async fn reconnect_remote_gui(
     rclone_path: Option<String>,
     name: String,
 ) -> Result<String, String> {
-    let exe = resolve_rclone_path(rclone_path);
-    let mut cmd = Command::new(&exe);
-    cmd.args(["config", "reconnect", &format!("{}:", name)]);
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    tauri::async_runtime::spawn_blocking(move || {
+        let exe = resolve_rclone_path(rclone_path);
+        let mut cmd = Command::new(&exe);
+        cmd.args(["config", "reconnect", &format!("{}:", name)]);
+        cmd.stdin(Stdio::piped());
+        cmd.creation_flags(CREATE_NO_WINDOW);
 
-    let output = cmd.output().map_err(|e| format!("執行重新連線失敗: {}", e))?;
-    if output.status.success() {
-        Ok(format!("遠端 '{}' 重新授權登入成功！", name))
-    } else {
-        let err = String::from_utf8_lossy(&output.stderr);
-        Err(format!("重新授權失敗: {}", err))
-    }
+        let mut child = cmd.spawn().map_err(|e| format!("執行重新連線失敗: {}", e))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(b"1\n0\ny\ny\n");
+        }
+
+        let output = child.wait_with_output().map_err(|e| format!("等待重新授權失敗: {}", e))?;
+        if output.status.success() {
+            let _ = auto_heal_onedrive_config(&exe, &name);
+            Ok(format!("遠端 '{}' 重新授權登入成功！", name))
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            Err(format!("重新授權失敗: {}", err))
+        }
+    })
+    .await
+    .map_err(|e| format!("執行重新授權失敗: {}", e))?
 }
 
 // Get Single Remote Configuration Detail
