@@ -129,12 +129,12 @@ fn ensure_drive_icons() -> std::path::PathBuf {
 
 fn get_icon_filename_for_type(remote_type: &str) -> &'static str {
     let t = remote_type.to_lowercase();
-    if t.contains("drive") || t == "gdrive" {
+    if t.contains("onedrive") {
+        "onedrive.ico"
+    } else if t.contains("drive") || t == "gdrive" {
         "gdrive.ico"
     } else if t.contains("dropbox") {
         "dropbox.ico"
-    } else if t.contains("onedrive") {
-        "onedrive.ico"
     } else if t.contains("webdav") || t.contains("nextcloud") || t.contains("owncloud") {
         "webdav.ico"
     } else if t.contains("mega") {

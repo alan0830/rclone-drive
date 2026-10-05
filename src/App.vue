@@ -192,9 +192,9 @@ async function openUrl(url) {
 // Provider details helper
 function getProviderDetails(type = "") {
   const t = type.toLowerCase();
+  if (t.includes("onedrive")) return { name: "OneDrive", color: "#0078D4", bg: "rgba(0, 120, 212, 0.15)" };
   if (t.includes("drive")) return { name: "Google Drive", color: "#4285F4", bg: "rgba(66, 133, 244, 0.15)" };
   if (t.includes("photo")) return { name: "Google Photos", color: "#EA4335", bg: "rgba(234, 67, 53, 0.15)" };
-  if (t.includes("onedrive")) return { name: "OneDrive", color: "#0078D4", bg: "rgba(0, 120, 212, 0.15)" };
   if (t.includes("dropbox")) return { name: "Dropbox", color: "#0061FF", bg: "rgba(0, 97, 255, 0.15)" };
   if (t.includes("s3")) return { name: "Amazon S3", color: "#FF9900", bg: "rgba(255, 153, 0, 0.15)" };
   if (t.includes("webdav")) return { name: "WebDAV", color: "#10B981", bg: "rgba(16, 185, 129, 0.15)" };
@@ -2183,9 +2183,19 @@ onUnmounted(() => {
           <!-- Optional Client ID / Secret for Advanced Users -->
           <div v-if="editRemoteForm.type.includes('drive') || editRemoteForm.type.includes('onedrive')" class="setting-group">
             <label class="group-title">自訂 Client ID (選填)</label>
-            <input type="text" v-model="editRemoteForm.clientId" class="modal-input" placeholder="自訂 Google API Client ID" />
+            <input
+              type="text"
+              v-model="editRemoteForm.clientId"
+              class="modal-input"
+              :placeholder="editRemoteForm.type.includes('onedrive') ? '自訂 Microsoft / Azure Client ID' : '自訂 Google API Client ID'"
+            />
             <label class="group-title mt-2">自訂 Client Secret (選填)</label>
-            <input type="password" v-model="editRemoteForm.clientSecret" class="modal-input" placeholder="自訂 Google API Client Secret" />
+            <input
+              type="password"
+              v-model="editRemoteForm.clientSecret"
+              class="modal-input"
+              :placeholder="editRemoteForm.type.includes('onedrive') ? '自訂 Microsoft / Azure Client Secret' : '自訂 Google API Client Secret'"
+            />
           </div>
         </div>
 
