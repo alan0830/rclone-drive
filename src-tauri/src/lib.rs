@@ -408,8 +408,16 @@ async fn auto_install_winfsp() -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn download_and_install_update(download_url: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+async fn download_and_install_update(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    download_url: String,
+) -> Result<String, String> {
+    // 1. 更新前先安全解除所有已掛載的磁碟機與行程！
+    let _ = unmount_all(state);
+
+    // 2. 下載並啟動更新安裝程式
+    let res = tauri::async_runtime::spawn_blocking(move || {
         let script = format!(
             r#"
             $ErrorActionPreference = 'Stop'
@@ -424,6 +432,8 @@ async fn download_and_install_update(download_url: String) -> Result<String, Str
             if (-not (Test-Path $tempFile)) {{
                 throw "下載完成但無法在暫存目錄找到檔案"
             }}
+            # 等待 1 秒讓舊版主程式準備退出，接著啟動安裝程式
+            Start-Sleep -Seconds 1
             if ($tempFile.EndsWith(".msi")) {{
                 Start-Process msiexec.exe -ArgumentList "/i `"$tempFile`""
             }} else {{
@@ -446,7 +456,18 @@ async fn download_and_install_update(download_url: String) -> Result<String, Str
         Ok("更新安裝程式已成功啟動".to_string())
     })
     .await
-    .map_err(|e| format!("執行緒錯誤: {}", e))?
+    .map_err(|e| format!("執行緒錯誤: {}", e))?;
+
+    // 3. 啟動安裝程式後，延遲 600ms 自動退出目前執行中的舊版應用程式，避免檔案被佔用
+    if res.is_ok() {
+        let app_clone = app.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(600));
+            app_clone.exit(0);
+        });
+    }
+
+    res
 }
 
 #[tauri::command]

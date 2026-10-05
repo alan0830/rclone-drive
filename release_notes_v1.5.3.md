@@ -30,9 +30,9 @@
 
 | 檔案名稱 | SHA-256 雜湊值 |
 | :--- | :--- |
-| `RcloneDrive_v1.5.3_x64_Setup.exe` | `735d8c9d28be140323dfa76c0845c6e13811e622847d440cdce4e64ec2857d56` |
-| `RcloneDrive_v1.5.3_Portable_x64.exe` | `4684fedc3bf75ff52f781e0c5555acc0b605e02e2c4674ea06b5e84698f21680` |
-| `RcloneDrive_v1.5.3_x64.msi` | `a89f9d3ff751cd98a5f3e7e39d85799f9f37ae2761b1b1c308cf9bb4103a5511` |
+| `RcloneDrive_v1.5.3_x64_Setup.exe` | `a5641a345e9ae1abf52f4ecd40f8fb3772bf86fffda94b7d550af27210ba777d` |
+| `RcloneDrive_v1.5.3_Portable_x64.exe` | `1be4f731754bdda76056921d34ae00f54942e0b5c212c163e1fd7592e30b547f` |
+| `RcloneDrive_v1.5.3_x64.msi` | `6d45ccc217212a029a79affa68d353231d64a05dd16bdcdc11d63842852d745a` |
 
 ---
 

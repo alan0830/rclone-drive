@@ -88,8 +88,14 @@ const autostartActive = ref(false);
 const startMinimizedActive = ref(true);
 const customRclonePath = ref(localStorage.getItem("rclone_custom_path") || "C:\\rclone\\rclone.exe");
 
-// Configuration map for remotes
-const remoteConfigs = reactive({});
+// Configuration map for remotes (Persisted to localStorage)
+const savedRemoteConfigs = JSON.parse(localStorage.getItem("rclone_remote_configs") || "{}");
+const remoteConfigs = reactive(savedRemoteConfigs);
+
+function saveRemoteConfigs() {
+  localStorage.setItem("rclone_remote_configs", JSON.stringify(remoteConfigs));
+}
+
 const loadingRemotes = reactive(new Set());
 const autoMountList = ref(JSON.parse(localStorage.getItem("rclone_auto_mount_list") || "[]"));
 
@@ -299,12 +305,18 @@ async function executeUpdate() {
   }
 
   isDownloadingUpdate.value = true;
-  showToast("正在下載最新版本安裝程式，請稍候...", "info");
+  showToast("正在安全解除所有已掛載磁碟，並下載安裝更新...", "info");
   try {
+    // 1. 先安全解除所有已掛載的磁碟機
+    try {
+      await invoke("unmount_all");
+      await refreshAll();
+    } catch (_) {}
+
     const msg = await invoke("download_and_install_update", {
       downloadUrl: updateInfo.downloadUrl
     });
-    showToast(msg || "更新安裝程式已成功啟動！", "success");
+    showToast(msg || "更新安裝程式已成功啟動，主程式即將退出...", "success");
     showUpdateModal.value = false;
   } catch (err) {
     showToast(`自動啟動更新失敗: ${err}，已為您在瀏覽器開啟下載頁面`, "error");
@@ -422,8 +434,14 @@ async function refreshAll(isInitial = false) {
     let driveIndex = 0;
     remoteList.forEach((r) => {
       if (!remoteConfigs[r.name]) {
-        // Assign distinct available drive letters to each card
-        const assigned = availableDrives.value[driveIndex] || "Z:";
+        // 全新遠端，尚未設定過磁碟代號，避開已被其他遠端選取的代號
+        const usedLetters = Object.values(remoteConfigs)
+          .map((c) => c?.driveLetter)
+          .filter(Boolean);
+        const assigned =
+          availableDrives.value.find((d) => !usedLetters.includes(d)) ||
+          availableDrives.value[driveIndex] ||
+          "Z:";
         driveIndex++;
 
         remoteConfigs[r.name] = {
@@ -433,10 +451,15 @@ async function refreshAll(isInitial = false) {
           readOnly: false,
           autoMount: autoMountList.value.includes(r.name)
         };
-      } else if (r.is_mounted && r.mounted_drive) {
-        remoteConfigs[r.name].driveLetter = r.mounted_drive;
+      } else {
+        // 已有儲存的使用者自訂設定，絕對保留使用者的 driveLetter！
+        if (r.is_mounted && r.mounted_drive) {
+          remoteConfigs[r.name].driveLetter = r.mounted_drive;
+        }
+        remoteConfigs[r.name].autoMount = autoMountList.value.includes(r.name);
       }
     });
+    saveRemoteConfigs();
 
     if (isInitial && autoMountList.value.length > 0) {
       for (const r of remoteList) {
@@ -671,6 +694,7 @@ async function submitEditRemote() {
       if (remoteConfigs[oldName]) {
         remoteConfigs[trimmedNewName] = { ...remoteConfigs[oldName] };
         delete remoteConfigs[oldName];
+        saveRemoteConfigs();
       }
       const autoIdx = autoMountList.value.indexOf(oldName);
       if (autoIdx !== -1) {
@@ -729,6 +753,10 @@ async function handleDeleteRemote(name) {
       rclonePath: customRclonePath.value.trim() || null,
       name
     });
+    if (remoteConfigs[name]) {
+      delete remoteConfigs[name];
+      saveRemoteConfigs();
+    }
     showToast(`已成功刪除 ${name}`, "info");
     await refreshAll();
   } catch (err) {
@@ -1301,6 +1329,7 @@ function toggleRemoteAutoMount(remoteName) {
   }
   autoMountList.value = list;
   localStorage.setItem("rclone_auto_mount_list", JSON.stringify(list));
+  saveRemoteConfigs();
 }
 
 function saveCustomPath() {
@@ -1636,6 +1665,7 @@ onUnmounted(() => {
                   <select
                     v-if="!remote.is_mounted"
                     v-model="remoteConfigs[remote.name].driveLetter"
+                    @change="saveRemoteConfigs"
                     class="drive-select"
                   >
                     <option v-for="letter in availableDrives" :key="letter" :value="letter">
@@ -1658,6 +1688,8 @@ onUnmounted(() => {
                 <input
                   type="text"
                   v-model="remoteConfigs[remote.name].volname"
+                  @change="saveRemoteConfigs"
+                  @blur="saveRemoteConfigs"
                   class="field-input"
                   placeholder="檔案總管中顯示的名稱"
                 />
@@ -1666,7 +1698,11 @@ onUnmounted(() => {
               <!-- Cache Mode -->
               <div class="setting-row" v-if="!remote.is_mounted">
                 <label class="field-label">快取模式</label>
-                <select v-model="remoteConfigs[remote.name].cacheMode" class="field-select">
+                <select
+                  v-model="remoteConfigs[remote.name].cacheMode"
+                  @change="saveRemoteConfigs"
+                  class="field-select"
+                >
                   <option value="full">Full (推薦, 支援 Office/多數軟體)</option>
                   <option value="writes">Writes (僅寫入快取)</option>
                   <option value="minimal">Minimal (最低快取)</option>
