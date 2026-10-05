@@ -475,6 +475,15 @@ FunctionEnd
 {{/each}}
 
 Function .onInit
+  ; Automatically unmount existing cloud drives and terminate running app processes
+  nsExec::Exec 'taskkill /F /IM rclone.exe /T'
+  nsExec::Exec 'taskkill /F /IM ${MAINBINARYNAME}.exe /T'
+  nsExec::Exec 'taskkill /F /IM RcloneDrive.exe /T'
+  nsExec::Exec 'taskkill /F /IM rclone-drive.exe /T'
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\DriveIcons"
+  nsExec::Exec 'ie4uinit.exe -show'
+  Sleep 600
+
   ${GetOptions} $CMDLINE "/P" $PassiveMode
   ${IfNot} ${Errors}
     StrCpy $PassiveMode 1
@@ -642,8 +651,14 @@ Section Install
     !insertmacro NSIS_HOOK_PREINSTALL
   !endif
 
-  ; Terminate existing instance if running to avoid locked files
+  ; Terminate existing instances and cleanly unmount all cloud drives to avoid locked files
+  nsExec::Exec 'taskkill /F /IM rclone.exe /T'
   nsExec::Exec 'taskkill /F /IM ${MAINBINARYNAME}.exe /T'
+  nsExec::Exec 'taskkill /F /IM RcloneDrive.exe /T'
+  nsExec::Exec 'taskkill /F /IM rclone-drive.exe /T'
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\DriveIcons"
+  nsExec::Exec 'ie4uinit.exe -show'
+  Sleep 600
 
   !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
@@ -781,6 +796,15 @@ Section Uninstall
   !ifmacrodef NSIS_HOOK_PREUNINSTALL
     !insertmacro NSIS_HOOK_PREUNINSTALL
   !endif
+
+  ; Terminate existing instances and cleanly unmount all cloud drives before uninstalling
+  nsExec::Exec 'taskkill /F /IM rclone.exe /T'
+  nsExec::Exec 'taskkill /F /IM ${MAINBINARYNAME}.exe /T'
+  nsExec::Exec 'taskkill /F /IM RcloneDrive.exe /T'
+  nsExec::Exec 'taskkill /F /IM rclone-drive.exe /T'
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\DriveIcons"
+  nsExec::Exec 'ie4uinit.exe -show'
+  Sleep 600
 
   !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 

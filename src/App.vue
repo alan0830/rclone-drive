@@ -191,7 +191,7 @@ const editTaskForm = reactive({
 let schedulerTimer = null;
 
 // GitHub Auto-Update State & Settings
-const CURRENT_VERSION = "1.5.4";
+const CURRENT_VERSION = "1.5.5";
 const GITHUB_REPO = "alan0830/rclone-drive";
 
 const savedUpdateSettings = JSON.parse(localStorage.getItem("rclone_update_settings") || "{}");

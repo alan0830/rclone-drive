@@ -87,10 +87,10 @@
 
 ```powershell
 # 檢驗安裝檔雜湊值
-Get-FileHash .\RcloneDrive_v1.5.4_x64_Setup.exe -Algorithm SHA256
+Get-FileHash .\RcloneDrive_v1.5.5_x64_Setup.exe -Algorithm SHA256
 
 # 檢驗便攜版雜湊值
-Get-FileHash .\RcloneDrive_v1.5.4_Portable_x64.exe -Algorithm SHA256
+Get-FileHash .\RcloneDrive_v1.5.5_Portable_x64.exe -Algorithm SHA256
 ```
 
 比對輸出的 `Hash` 字串是否與 GitHub Releases 頁面上公布的一致，即可 100% 確保檔案未受損壞或竄改！
