@@ -2,15 +2,33 @@
   --bg-primary: #0a0d14;
   --bg-secondary: #101522;
   --bg-tertiary: #171f33;
+  --bg-app-gradient: radial-gradient(circle at 10% 20%, #0d1322 0%, #080b12 90%);
+  --bg-header: rgba(16, 22, 36, 0.85);
+  --bg-nav: rgba(10, 15, 26, 0.6);
+  --bg-banner: rgba(10, 15, 26, 0.6);
   --bg-card: rgba(22, 29, 47, 0.75);
   --bg-card-hover: rgba(29, 39, 63, 0.85);
   --bg-card-active: rgba(30, 41, 68, 0.95);
+  --bg-card-footer: rgba(15, 23, 42, 0.5);
+  --bg-input: rgba(15, 23, 42, 0.8);
+  --bg-modal: #111827;
+  --bg-modal-footer: rgba(15, 23, 42, 0.6);
+  --bg-toolbar: #0f172a;
+  --bg-table-container: #090d16;
+  --bg-table-header: #0f172a;
+  --bg-statusbar: #0b1120;
+  --bg-btn-secondary: rgba(255, 255, 255, 0.05);
+  --bg-btn-secondary-hover: rgba(255, 255, 255, 0.1);
+  --bg-toggle: #334155;
+  --bg-status-unmounted: rgba(100, 116, 139, 0.15);
+  --bg-prereq-card: rgba(17, 24, 39, 0.85);
 
   --border-subtle: rgba(255, 255, 255, 0.07);
   --border-focus: #38bdf8;
   --border-card: rgba(255, 255, 255, 0.09);
 
   --text-main: #f8fafc;
+  --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
 
@@ -21,6 +39,18 @@
   --accent-emerald-glow: rgba(16, 185, 129, 0.25);
   --accent-amber: #f59e0b;
   --accent-rose: #f43f5e;
+  --text-warn-heading: #fde68a;
+  --text-warn: #fbbf24;
+
+  --text-emerald-btn: #34d399;
+  --bg-emerald-btn: rgba(16, 185, 129, 0.15);
+  --border-emerald-btn: rgba(16, 185, 129, 0.3);
+
+  --text-danger-btn: #fb7185;
+  --bg-danger-btn: rgba(244, 63, 94, 0.15);
+  --border-danger-btn: rgba(244, 63, 94, 0.3);
+
+  --brand-title-gradient: linear-gradient(90deg, #f8fafc, #94a3b8);
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -36,17 +66,35 @@
 :root[data-theme="light"],
 [data-theme="light"] {
   --bg-primary: #f8fafc;
-  --bg-secondary: #f1f5f9;
-  --bg-tertiary: #e2e8f0;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f1f5f9;
+  --bg-app-gradient: radial-gradient(circle at 10% 20%, #f8fafc 0%, #e2e8f0 90%);
+  --bg-header: rgba(255, 255, 255, 0.95);
+  --bg-nav: rgba(0, 0, 0, 0.05);
+  --bg-banner: rgba(255, 255, 255, 0.9);
   --bg-card: #ffffff;
-  --bg-card-hover: #f8fafc;
-  --bg-card-active: #f1f5f9;
+  --bg-card-hover: #ffffff;
+  --bg-card-active: #f8fafc;
+  --bg-card-footer: #f8fafc;
+  --bg-input: #ffffff;
+  --bg-modal: #ffffff;
+  --bg-modal-footer: #f8fafc;
+  --bg-toolbar: #f8fafc;
+  --bg-table-container: #ffffff;
+  --bg-table-header: #f1f5f9;
+  --bg-statusbar: #f8fafc;
+  --bg-btn-secondary: #f1f5f9;
+  --bg-btn-secondary-hover: #e2e8f0;
+  --bg-toggle: #cbd5e1;
+  --bg-status-unmounted: rgba(100, 116, 139, 0.12);
+  --bg-prereq-card: #ffffff;
 
   --border-subtle: rgba(0, 0, 0, 0.08);
   --border-focus: #0284c7;
   --border-card: rgba(0, 0, 0, 0.09);
 
   --text-main: #0f172a;
+  --text-primary: #0f172a;
   --text-secondary: #475569;
   --text-muted: #64748b;
 
@@ -57,6 +105,18 @@
   --accent-emerald-glow: rgba(5, 150, 105, 0.2);
   --accent-amber: #d97706;
   --accent-rose: #e11d48;
+  --text-warn-heading: #92400e;
+  --text-warn: #b45309;
+
+  --text-emerald-btn: #047857;
+  --bg-emerald-btn: rgba(16, 185, 129, 0.12);
+  --border-emerald-btn: rgba(16, 185, 129, 0.35);
+
+  --text-danger-btn: #be123c;
+  --bg-danger-btn: rgba(244, 63, 94, 0.1);
+  --border-danger-btn: rgba(244, 63, 94, 0.3);
+
+  --brand-title-gradient: linear-gradient(90deg, #0f172a, #334155);
 
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 14px -2px rgba(0, 0, 0, 0.08);

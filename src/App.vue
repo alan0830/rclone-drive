@@ -2364,7 +2364,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: radial-gradient(circle at 10% 20%, #0d1322 0%, #080b12 90%);
+  background: var(--bg-app-gradient);
+  color: var(--text-main);
 }
 
 /* Header */
@@ -2373,7 +2374,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 14px 28px;
-  background: rgba(16, 22, 36, 0.85);
+  background: var(--bg-header);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-subtle);
   z-index: 10;
@@ -2417,7 +2418,7 @@ onUnmounted(() => {
 .brand-title {
   font-size: 18px;
   font-weight: 700;
-  background: linear-gradient(90deg, #f8fafc, #94a3b8);
+  background: var(--brand-title-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -2432,7 +2433,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(10, 15, 26, 0.6);
+  background: var(--bg-nav);
   padding: 4px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
@@ -2501,7 +2502,7 @@ onUnmounted(() => {
 .prereq-title {
   font-size: 14px;
   font-weight: 600;
-  color: #fde68a;
+  color: var(--text-warn-heading);
 }
 
 .prereq-cards-row {
@@ -2513,7 +2514,7 @@ onUnmounted(() => {
 .prereq-item-card {
   flex: 1;
   min-width: 280px;
-  background: rgba(17, 24, 39, 0.85);
+  background: var(--bg-prereq-card);
   border: 1px solid rgba(245, 158, 11, 0.3);
   border-radius: var(--radius-md);
   padding: 14px 18px;
@@ -2532,7 +2533,7 @@ onUnmounted(() => {
 .prereq-badge {
   font-size: 10px;
   font-weight: 700;
-  color: #f59e0b;
+  color: var(--text-warn);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -2540,21 +2541,21 @@ onUnmounted(() => {
 .prereq-item-card h4 {
   font-size: 14px;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--text-main);
 }
 
 .prereq-item-card p {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 
 .prereq-item-card code {
   font-family: 'JetBrains Mono', monospace;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--bg-card-footer);
   padding: 2px 6px;
   border-radius: 4px;
-  color: #38bdf8;
+  color: var(--accent-cyan);
 }
 
 .prereq-btn-group {
@@ -2580,20 +2581,20 @@ onUnmounted(() => {
 }
 
 .btn-download-alt {
-  background: rgba(255, 255, 255, 0.1);
-  color: #f8fafc;
+  background: var(--bg-btn-secondary);
+  color: var(--text-main);
   font-weight: 500;
   padding: 8px 14px;
   font-size: 12px;
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--border-subtle);
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
 .btn-download-alt:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--bg-btn-secondary-hover);
 }
 
 /* Environment Banner */
@@ -2602,9 +2603,10 @@ onUnmounted(() => {
   align-items: center;
   gap: 20px;
   padding: 8px 28px;
-  background: rgba(10, 15, 26, 0.6);
+  background: var(--bg-banner);
   border-bottom: 1px solid var(--border-subtle);
   font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .env-item {
@@ -2623,7 +2625,7 @@ onUnmounted(() => {
 }
 
 .env-warn {
-  color: #fbbf24;
+  color: var(--text-warn);
 }
 
 .env-neutral {
@@ -2631,13 +2633,13 @@ onUnmounted(() => {
 }
 
 .clickable-link {
-  color: #fbbf24;
+  color: var(--text-warn);
   text-decoration: underline;
   cursor: pointer;
 }
 
 .clickable-link:hover {
-  color: #f59e0b;
+  color: var(--accent-amber);
 }
 
 .ml-auto {
@@ -2711,6 +2713,7 @@ onUnmounted(() => {
 .sub-title-group h2 {
   font-size: 17px;
   font-weight: 700;
+  color: var(--text-main);
 }
 
 .sub-title-group p {
@@ -2746,7 +2749,7 @@ onUnmounted(() => {
 
 .drive-card:hover {
   background: var(--bg-card-hover);
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: var(--border-focus);
   transform: translateY(-2px);
   box-shadow: var(--shadow-lg);
 }
@@ -2810,9 +2813,9 @@ onUnmounted(() => {
 }
 
 .status-mounted {
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: var(--bg-emerald-btn);
+  color: var(--text-emerald-btn);
+  border: 1px solid var(--border-emerald-btn);
 }
 
 .status-mounted .status-dot {
@@ -2824,7 +2827,7 @@ onUnmounted(() => {
 }
 
 .status-unmounted {
-  background: rgba(100, 116, 139, 0.15);
+  background: var(--bg-status-unmounted);
   color: var(--text-muted);
 }
 
@@ -2900,7 +2903,7 @@ onUnmounted(() => {
 .field-select,
 .field-input,
 .modal-input {
-  background: rgba(15, 23, 42, 0.8);
+  background: var(--bg-input);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   color: var(--text-main);
@@ -2915,7 +2918,7 @@ onUnmounted(() => {
 .field-input:focus,
 .modal-input:focus {
   border-color: var(--accent-cyan);
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+  box-shadow: 0 0 0 2px var(--accent-cyan-glow);
 }
 
 .drive-locked {
@@ -2923,12 +2926,12 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.25);
+  background: var(--bg-emerald-btn);
+  border: 1px solid var(--border-emerald-btn);
   border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 600;
-  color: #34d399;
+  color: var(--text-emerald-btn);
 }
 
 .drive-letter-icon {
@@ -2949,7 +2952,7 @@ onUnmounted(() => {
   height: 16px;
   border-radius: 4px;
   border: 1px solid var(--border-card);
-  background: rgba(15, 23, 42, 0.8);
+  background: var(--bg-input);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2964,7 +2967,7 @@ onUnmounted(() => {
 .check-icon {
   width: 12px;
   height: 12px;
-  color: #0f172a;
+  color: #ffffff;
   stroke-width: 3;
 }
 
@@ -2975,7 +2978,7 @@ onUnmounted(() => {
 
 .card-footer {
   padding: 14px 18px;
-  background: rgba(15, 23, 42, 0.4);
+  background: var(--bg-card-footer);
   border-top: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
@@ -3035,7 +3038,7 @@ onUnmounted(() => {
 
 /* Diff Report Box */
 .diff-report-box {
-  background: rgba(15, 23, 42, 0.6);
+  background: var(--bg-card-footer);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   padding: 14px;
@@ -3071,7 +3074,8 @@ onUnmounted(() => {
   overflow-y: auto;
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--bg-table-container);
+  color: var(--text-main);
   padding: 8px;
   border-radius: 4px;
 }
@@ -3107,13 +3111,13 @@ onUnmounted(() => {
 }
 
 .log-content {
-  background: #090d16;
+  background: var(--bg-table-container);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   padding: 12px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
-  color: #cbd5e1;
+  color: var(--text-main);
   white-space: pre-wrap;
   word-break: break-all;
   height: 160px;
@@ -3142,7 +3146,7 @@ onUnmounted(() => {
 }
 
 .task-table th {
-  background: rgba(15, 23, 42, 0.5);
+  background: var(--bg-table-header);
   color: var(--text-secondary);
   font-weight: 600;
   font-size: 12px;
@@ -3156,13 +3160,13 @@ onUnmounted(() => {
 }
 
 .pill-active {
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
+  background: var(--bg-emerald-btn);
+  color: var(--text-emerald-btn);
 }
 
 .pill-disabled {
-  background: rgba(100, 116, 139, 0.15);
-  color: #94a3b8;
+  background: var(--bg-status-unmounted);
+  color: var(--text-muted);
 }
 
 .table-actions {
@@ -3242,6 +3246,7 @@ onUnmounted(() => {
 .empty-state h2 {
   font-size: 18px;
   font-weight: 600;
+  color: var(--text-main);
   margin-bottom: 10px;
 }
 
@@ -3300,44 +3305,44 @@ onUnmounted(() => {
 }
 
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-btn-secondary);
   color: var(--text-main);
   border-color: var(--border-subtle);
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--bg-btn-secondary-hover);
 }
 
 .btn-emerald {
   flex: 1;
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border-color: rgba(16, 185, 129, 0.3);
+  background: var(--bg-emerald-btn);
+  color: var(--text-emerald-btn);
+  border: 1px solid var(--border-emerald-btn);
 }
 
 .btn-emerald:hover:not(:disabled) {
-  background: rgba(16, 185, 129, 0.25);
+  filter: brightness(1.08);
 }
 
 .btn-danger {
-  background: rgba(244, 63, 94, 0.15);
-  color: #fb7185;
-  border-color: rgba(244, 63, 94, 0.3);
+  background: var(--bg-danger-btn);
+  color: var(--text-danger-btn);
+  border: 1px solid var(--border-danger-btn);
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: rgba(244, 63, 94, 0.25);
+  filter: brightness(1.08);
 }
 
 .btn-danger-outline {
   background: transparent;
-  color: #fb7185;
-  border-color: rgba(244, 63, 94, 0.4);
+  color: var(--text-danger-btn);
+  border: 1px solid var(--border-danger-btn);
 }
 
 .btn-danger-outline:hover:not(:disabled) {
-  background: rgba(244, 63, 94, 0.15);
+  background: var(--bg-danger-btn);
 }
 
 .btn-lg {
@@ -3359,7 +3364,8 @@ onUnmounted(() => {
 
 .modal-card {
   width: 520px;
-  background: #111827;
+  background: var(--bg-modal);
+  color: var(--text-main);
   border: 1px solid var(--border-card);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
@@ -3383,6 +3389,7 @@ onUnmounted(() => {
   gap: 10px;
   font-size: 16px;
   font-weight: 600;
+  color: var(--text-main);
 }
 
 .modal-title-icon {
@@ -3423,6 +3430,7 @@ onUnmounted(() => {
 .group-title {
   font-size: 13px;
   font-weight: 600;
+  color: var(--text-main);
 }
 
 .group-desc {
@@ -3449,12 +3457,13 @@ onUnmounted(() => {
 .switch-title {
   font-size: 13px;
   font-weight: 600;
+  color: var(--text-main);
 }
 
 .toggle-switch {
   width: 48px;
   height: 26px;
-  background: #334155;
+  background: var(--bg-toggle);
   border-radius: 13px;
   position: relative;
   cursor: pointer;
@@ -3507,7 +3516,7 @@ onUnmounted(() => {
 
 .modal-footer {
   padding: 16px 24px;
-  background: rgba(15, 23, 42, 0.6);
+  background: var(--bg-modal-footer);
   border-top: 1px solid var(--border-subtle);
   display: flex;
   justify-content: flex-end;
@@ -3549,8 +3558,8 @@ onUnmounted(() => {
 }
 
 .toast-info {
-  background: rgba(30, 41, 59, 0.9);
-  color: #e2e8f0;
+  background: var(--bg-modal);
+  color: var(--text-main);
   border: 1px solid var(--border-subtle);
 }
 
@@ -3669,7 +3678,7 @@ onUnmounted(() => {
 }
 
 .quick-filter-tag {
-  background: rgba(15, 23, 42, 0.6);
+  background: var(--bg-card-footer);
   border: 1px dashed var(--border-subtle);
   border-radius: 4px;
   padding: 2px 7px;
@@ -3788,7 +3797,7 @@ onUnmounted(() => {
   display: flex;
   gap: 14px;
   align-items: flex-end;
-  background: rgba(15, 23, 42, 0.5);
+  background: var(--bg-card-footer);
   padding: 10px 14px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
@@ -3810,7 +3819,7 @@ onUnmounted(() => {
 }
 
 .modal-input-compact {
-  background: rgba(15, 23, 42, 0.85);
+  background: var(--bg-input);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   padding: 6px 10px;
@@ -3861,7 +3870,7 @@ onUnmounted(() => {
 .rcloneview-count-badge {
   font-size: 11px;
   color: var(--text-muted);
-  background: rgba(30, 41, 59, 0.7);
+  background: var(--bg-card-footer);
   padding: 2px 8px;
   border-radius: 9999px;
   border: 1px solid var(--border-subtle);
@@ -3925,7 +3934,7 @@ onUnmounted(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  background: #0f172a;
+  background: var(--bg-toolbar);
   border-left: 1px solid var(--border-subtle);
   border-right: 1px solid var(--border-subtle);
   border-bottom: 1px solid var(--border-subtle);
@@ -3955,7 +3964,7 @@ onUnmounted(() => {
   font-weight: 600;
   cursor: pointer;
   border: 1px solid transparent;
-  background: rgba(30, 41, 59, 0.6);
+  background: var(--bg-btn-secondary);
   color: var(--text-muted);
   transition: all 0.15s;
 }
@@ -4010,7 +4019,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(15, 23, 42, 0.9);
+  background: var(--bg-input);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   padding: 3px 8px;
@@ -4038,7 +4047,7 @@ onUnmounted(() => {
   overflow-y: auto;
   border-left: 1px solid var(--border-subtle);
   border-right: 1px solid var(--border-subtle);
-  background: #090d16;
+  background: var(--bg-table-container);
 }
 
 .rv-table {
@@ -4050,7 +4059,7 @@ onUnmounted(() => {
 .rv-thead-row {
   position: sticky;
   top: 0;
-  background: #0f172a;
+  background: var(--bg-table-header);
   z-index: 10;
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -4073,7 +4082,7 @@ onUnmounted(() => {
 .col-dir {
   width: 44px;
   text-align: center;
-  background: rgba(15, 23, 42, 0.95);
+  background: var(--bg-table-header);
   border-left: 1px solid var(--border-subtle);
   border-right: 1px solid var(--border-subtle);
 }
@@ -4091,7 +4100,7 @@ onUnmounted(() => {
 }
 
 .rv-row:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-card-hover);
 }
 
 /* User's red-boxed selection effect (柔和淡藍色選中高亮背景) */
@@ -4183,7 +4192,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: #0b1120;
+  background: var(--bg-statusbar);
   border: 1px solid var(--border-subtle);
   border-top: none;
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
@@ -4201,7 +4210,7 @@ onUnmounted(() => {
 /* Task Log Details Drawer */
 .task-log-details {
   margin-top: 10px;
-  background: rgba(15, 23, 42, 0.6);
+  background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -4217,7 +4226,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(15, 23, 42, 0.85);
+  background: var(--bg-card-footer);
 }
 
 .log-summary-hint {
@@ -4229,7 +4238,7 @@ onUnmounted(() => {
   padding: 10px 12px;
   font-family: monospace;
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--text-secondary);
   max-height: 180px;
   overflow-y: auto;
   white-space: pre-wrap;
@@ -4273,7 +4282,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(15, 23, 42, 0.8);
+  background: var(--bg-card-footer);
   padding: 8px 12px;
   border-radius: var(--radius-sm);
   margin-bottom: 10px;
@@ -4292,7 +4301,7 @@ onUnmounted(() => {
 .cloud-dirs-container {
   height: 240px;
   overflow-y: auto;
-  background: rgba(15, 23, 42, 0.6);
+  background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   padding: 6px;
@@ -4324,7 +4333,7 @@ onUnmounted(() => {
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.12s;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--bg-card-footer);
 }
 
 .cloud-dir-item:hover {
@@ -4341,331 +4350,5 @@ onUnmounted(() => {
 .cloud-dir-name {
   font-size: 12px;
   font-weight: 500;
-}
-
-/* ========================================================
-   LIGHT THEME OVERRIDES (淺色主題專屬樣式)
-   ======================================================== */
-.app-layout[data-theme="light"],
-:global([data-theme="light"]) .app-layout {
-  background: radial-gradient(circle at 10% 20%, #f8fafc 0%, #eef2f6 90%);
-}
-
-.app-layout[data-theme="light"] .app-header,
-:global([data-theme="light"]) .app-header {
-  background: rgba(255, 255, 255, 0.92);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
-}
-
-.app-layout[data-theme="light"] .brand-title,
-:global([data-theme="light"]) .brand-title {
-  background: linear-gradient(90deg, #0f172a, #334155);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.app-layout[data-theme="light"] .nav-tabs,
-:global([data-theme="light"]) .nav-tabs {
-  background: rgba(0, 0, 0, 0.05);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-.app-layout[data-theme="light"] .tab-btn,
-:global([data-theme="light"]) .tab-btn {
-  color: #475569;
-}
-
-.app-layout[data-theme="light"] .tab-btn:hover,
-:global([data-theme="light"]) .tab-btn:hover {
-  color: #0f172a;
-  background: rgba(0, 0, 0, 0.05);
-}
-
-.app-layout[data-theme="light"] .tab-btn.active,
-:global([data-theme="light"]) .tab-btn.active {
-  color: #ffffff;
-  background: linear-gradient(135deg, #0284c7, #2563eb);
-}
-
-.app-layout[data-theme="light"] .env-banner,
-:global([data-theme="light"]) .env-banner {
-  background: rgba(255, 255, 255, 0.85);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.app-layout[data-theme="light"] .drive-card,
-:global([data-theme="light"]) .drive-card {
-  background: #ffffff;
-  border-color: rgba(0, 0, 0, 0.09);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
-}
-
-.app-layout[data-theme="light"] .drive-card:hover,
-:global([data-theme="light"]) .drive-card:hover {
-  background: #ffffff;
-  border-color: rgba(2, 132, 199, 0.35);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-}
-
-.app-layout[data-theme="light"] .card-header,
-:global([data-theme="light"]) .card-header {
-  border-bottom-color: rgba(0, 0, 0, 0.06);
-}
-
-.app-layout[data-theme="light"] .drive-select,
-.app-layout[data-theme="light"] .field-select,
-.app-layout[data-theme="light"] .field-input,
-.app-layout[data-theme="light"] .modal-input,
-.app-layout[data-theme="light"] .modal-input-compact,
-:global([data-theme="light"]) .drive-select,
-:global([data-theme="light"]) .field-select,
-:global([data-theme="light"]) .field-input,
-:global([data-theme="light"]) .modal-input,
-:global([data-theme="light"]) .modal-input-compact {
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  color: #0f172a;
-}
-
-.app-layout[data-theme="light"] .drive-select:focus,
-.app-layout[data-theme="light"] .field-select:focus,
-.app-layout[data-theme="light"] .field-input:focus,
-.app-layout[data-theme="light"] .modal-input:focus,
-.app-layout[data-theme="light"] .modal-input-compact:focus,
-:global([data-theme="light"]) .drive-select:focus,
-:global([data-theme="light"]) .field-select:focus,
-:global([data-theme="light"]) .field-input:focus,
-:global([data-theme="light"]) .modal-input:focus,
-:global([data-theme="light"]) .modal-input-compact:focus {
-  border-color: #0284c7;
-  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
-}
-
-.app-layout[data-theme="light"] .drive-locked,
-:global([data-theme="light"]) .drive-locked {
-  background: rgba(16, 185, 129, 0.08);
-  border-color: rgba(16, 185, 129, 0.3);
-  color: #059669;
-}
-
-.app-layout[data-theme="light"] .modal-backdrop,
-:global([data-theme="light"]) .modal-backdrop {
-  background: rgba(15, 23, 42, 0.45);
-}
-
-.app-layout[data-theme="light"] .modal-card,
-:global([data-theme="light"]) .modal-card {
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.16);
-  color: #0f172a;
-}
-
-.app-layout[data-theme="light"] .modal-header,
-:global([data-theme="light"]) .modal-header {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
-}
-
-.app-layout[data-theme="light"] .modal-footer,
-:global([data-theme="light"]) .modal-footer {
-  background: #f8fafc;
-  border-top: 1px solid rgba(0, 0, 0, 0.07);
-}
-
-.app-layout[data-theme="light"] .btn-secondary,
-:global([data-theme="light"]) .btn-secondary {
-  background: #f1f5f9;
-  color: #1e293b;
-  border-color: rgba(0, 0, 0, 0.1);
-}
-
-.app-layout[data-theme="light"] .btn-secondary:hover:not(:disabled),
-:global([data-theme="light"]) .btn-secondary:hover:not(:disabled) {
-  background: #e2e8f0;
-}
-
-.app-layout[data-theme="light"] .info-box,
-:global([data-theme="light"]) .info-box {
-  background: rgba(2, 132, 199, 0.06);
-  border-color: rgba(2, 132, 199, 0.2);
-}
-
-.app-layout[data-theme="light"] .toggle-switch,
-:global([data-theme="light"]) .toggle-switch {
-  background: #cbd5e1;
-}
-
-.app-layout[data-theme="light"] .toggle-switch.active,
-:global([data-theme="light"]) .toggle-switch.active {
-  background: #0284c7;
-}
-
-.app-layout[data-theme="light"] .status-unmounted,
-:global([data-theme="light"]) .status-unmounted {
-  background: rgba(0, 0, 0, 0.05);
-  color: #64748b;
-}
-
-.app-layout[data-theme="light"] .count-pill,
-:global([data-theme="light"]) .count-pill {
-  background: rgba(0, 0, 0, 0.04);
-  border-color: rgba(0, 0, 0, 0.08);
-  color: #475569;
-}
-
-.app-layout[data-theme="light"] .setup-options-row,
-:global([data-theme="light"]) .setup-options-row {
-  background: #f8fafc;
-  border-color: rgba(0, 0, 0, 0.08);
-}
-
-.app-layout[data-theme="light"] .rcloneview-action-toolbar,
-:global([data-theme="light"]) .rcloneview-action-toolbar {
-  background: #f8fafc;
-  border-color: rgba(0, 0, 0, 0.08);
-}
-
-.app-layout[data-theme="light"] .rv-toggle-btn,
-:global([data-theme="light"]) .rv-toggle-btn {
-  background: #e2e8f0;
-  color: #475569;
-}
-
-.app-layout[data-theme="light"] .rv-search-box,
-:global([data-theme="light"]) .rv-search-box {
-  background: #ffffff;
-  border-color: rgba(0, 0, 0, 0.15);
-}
-
-.app-layout[data-theme="light"] .rv-search-input,
-:global([data-theme="light"]) .rv-search-input {
-  color: #0f172a;
-}
-
-.app-layout[data-theme="light"] .rcloneview-table-container,
-:global([data-theme="light"]) .rcloneview-table-container {
-  background: #ffffff;
-  border-color: rgba(0, 0, 0, 0.08);
-}
-
-.app-layout[data-theme="light"] .rv-thead-row,
-:global([data-theme="light"]) .rv-thead-row {
-  background: #f1f5f9;
-  border-bottom-color: rgba(0, 0, 0, 0.08);
-}
-
-.app-layout[data-theme="light"] .rv-thead-row th,
-:global([data-theme="light"]) .rv-thead-row th {
-  color: #475569;
-  border-right-color: rgba(0, 0, 0, 0.05);
-}
-
-.app-layout[data-theme="light"] .rv-row,
-:global([data-theme="light"]) .rv-row {
-  border-bottom-color: rgba(0, 0, 0, 0.05);
-}
-
-.app-layout[data-theme="light"] .rv-row:hover,
-:global([data-theme="light"]) .rv-row:hover {
-  background: rgba(2, 132, 199, 0.05);
-}
-
-.app-layout[data-theme="light"] .col-dir,
-:global([data-theme="light"]) .col-dir {
-  background: #f8fafc;
-  border-left-color: rgba(0, 0, 0, 0.08);
-  border-right-color: rgba(0, 0, 0, 0.08);
-}
-
-.app-layout[data-theme="light"] .entry-name,
-:global([data-theme="light"]) .entry-name {
-  color: #0f172a;
-}
-
-.app-layout[data-theme="light"] .rcloneview-statusbar,
-:global([data-theme="light"]) .rcloneview-statusbar {
-  background: #f8fafc;
-  border-color: rgba(0, 0, 0, 0.08);
-  color: #64748b;
-}
-
-.app-layout[data-theme="light"] .task-log-details,
-:global([data-theme="light"]) .task-log-details {
-  background: #ffffff;
-  border-color: rgba(0, 0, 0, 0.08);
-}
-
-.app-layout[data-theme="light"] .log-summary,
-:global([data-theme="light"]) .log-summary {
-  background: #f8fafc;
-  color: #1e293b;
-}
-
-.app-layout[data-theme="light"] .log-content-pre,
-:global([data-theme="light"]) .log-content-pre {
-  background: #f8fafc;
-  color: #334155;
-}
-
-.app-layout[data-theme="light"] .quick-filter-tag,
-:global([data-theme="light"]) .quick-filter-tag {
-  background: #f1f5f9;
-  border-color: rgba(0, 0, 0, 0.12);
-  color: #475569;
-}
-
-.app-layout[data-theme="light"] .cloud-breadcrumb-bar,
-:global([data-theme="light"]) .cloud-breadcrumb-bar {
-  background: #f1f5f9;
-  border-color: rgba(0, 0, 0, 0.08);
-}
-
-.app-layout[data-theme="light"] .cloud-dirs-container,
-:global([data-theme="light"]) .cloud-dirs-container {
-  background: #ffffff;
-  border-color: rgba(0, 0, 0, 0.08);
-}
-
-.app-layout[data-theme="light"] .cloud-dir-item,
-:global([data-theme="light"]) .cloud-dir-item {
-  background: #f8fafc;
-  color: #1e293b;
-}
-
-.app-layout[data-theme="light"] .cloud-dir-item:hover,
-:global([data-theme="light"]) .cloud-dir-item:hover {
-  background: rgba(2, 132, 199, 0.08);
-  color: #0284c7;
-}
-
-.app-layout[data-theme="light"] .task-table,
-:global([data-theme="light"]) .task-table {
-  background: #ffffff;
-}
-
-.app-layout[data-theme="light"] .task-table th,
-:global([data-theme="light"]) .task-table th {
-  background: #f1f5f9;
-  color: #475569;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-.app-layout[data-theme="light"] .task-table td,
-:global([data-theme="light"]) .task-table td {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-}
-
-.app-layout[data-theme="light"] .task-table-wrapper,
-:global([data-theme="light"]) .task-table-wrapper {
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-.app-layout[data-theme="light"] .toast-info,
-:global([data-theme="light"]) .toast-info {
-  background: rgba(255, 255, 255, 0.95);
-  color: #0f172a;
-  border-color: rgba(0, 0, 0, 0.12);
 }
 </style>
