@@ -1146,6 +1146,33 @@ fn open_browser_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn open_rclone_config_terminal(rclone_path: Option<String>) -> Result<(), String> {
+    let exe = resolve_rclone_path(rclone_path);
+    let mut cmd = Command::new("cmd.exe");
+    cmd.args(["/c", "start", "Rclone Config 互動設定精靈", "cmd.exe", "/k", &format!("\"{}\" config", exe)]);
+    let _ = cmd.spawn().map_err(|e| format!("無法啟動原版設定精靈視窗: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_supported_providers(rclone_path: Option<String>) -> Result<Vec<serde_json::Value>, String> {
+    let exe = resolve_rclone_path(rclone_path);
+    let mut cmd = Command::new(&exe);
+    cmd.args(["config", "providers"]);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    let output = cmd.output().map_err(|e| format!("執行 rclone config providers 失敗: {}", e))?;
+    if output.status.success() {
+        let list: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout)
+            .map_err(|e| format!("解析 providers JSON 失敗: {}", e))?;
+        Ok(list)
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr);
+        Err(format!("讀取 providers 失敗: {}", err))
+    }
+}
+
 // Native Local Folder Browser Dialog (Windows Forms STA)
 #[tauri::command]
 fn select_local_folder() -> Result<Option<String>, String> {
@@ -1589,6 +1616,8 @@ pub fn run() {
             auto_install_rclone,
             auto_install_winfsp,
             download_and_install_update,
+            open_rclone_config_terminal,
+            get_supported_providers,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

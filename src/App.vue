@@ -47,7 +47,13 @@ import {
   Zap,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Eye,
+  EyeOff,
+  Terminal,
+  HelpCircle,
+  Server,
+  Database
 } from "lucide-vue-next";
 
 // Theme State (Dark / Light)
@@ -102,6 +108,70 @@ function saveRemoteConfigs() {
 const loadingRemotes = reactive(new Set());
 const autoMountList = ref(JSON.parse(localStorage.getItem("rclone_auto_mount_list") || "[]"));
 
+// Supported Providers & S3 Settings
+const supportedProviders = ref([]);
+
+const S3_PROVIDERS = [
+  { value: "AWS", label: "Amazon Web Services (AWS S3 官方)", defaultRegion: "us-east-1", defaultEndpoint: "", hint: "官方 S3 端點可留空" },
+  { value: "Cloudflare", label: "Cloudflare R2", defaultRegion: "auto", defaultEndpoint: "", hint: "例如 https://<ACCOUNT_ID>.r2.cloudflarestorage.com" },
+  { value: "Minio", label: "MinIO 自架物件儲存", defaultRegion: "", defaultEndpoint: "http://127.0.0.1:9000", forcePathStyle: true, hint: "一般需啟用路徑樣式 (Force Path Style)" },
+  { value: "Wasabi", label: "Wasabi Cloud Storage", defaultRegion: "us-east-1", defaultEndpoint: "", hint: "支援 Wasabi 各區域" },
+  { value: "Backblaze", label: "Backblaze B2 (相容 S3 API)", defaultRegion: "us-west-004", defaultEndpoint: "s3.us-west-004.backblazeb2.com", hint: "使用 Backblaze B2 的 S3 相容端點" },
+  { value: "Alibaba", label: "阿里雲 OSS (S3 相容)", defaultRegion: "oss-cn-hangzhou", defaultEndpoint: "oss-cn-hangzhou.aliyuncs.com", hint: "使用阿里雲 OSS 端點" },
+  { value: "TencentCOS", label: "騰訊雲 COS (S3 相容)", defaultRegion: "ap-guangzhou", defaultEndpoint: "cos.ap-guangzhou.myqcloud.com", hint: "使用騰訊雲 COS 端點" },
+  { value: "DigitalOcean", label: "DigitalOcean Spaces", defaultRegion: "nyc3", defaultEndpoint: "nyc3.digitaloceanspaces.com", hint: "例如 nyc3.digitaloceanspaces.com" },
+  { value: "Ceph", label: "Ceph Object Storage", defaultRegion: "", defaultEndpoint: "", hint: "Ceph 自架物件儲存" },
+  { value: "Other", label: "其他自訂相容 S3 (相容 MinIO/S3 協定)", defaultRegion: "", defaultEndpoint: "", hint: "相容於 AWS S3 規範之各類儲存" }
+];
+
+const STORAGE_CATEGORIES = [
+  {
+    category: "常用個人與企業雲端",
+    items: [
+      { type: "drive", name: "Google Drive (個人 / 企業雲端硬碟)", auth: "oauth", hint: "瀏覽器 OAuth 登入" },
+      { type: "onedrive", name: "Microsoft OneDrive (個人 / 商務版)", auth: "oauth", hint: "瀏覽器 OAuth 登入" },
+      { type: "dropbox", name: "Dropbox", auth: "oauth", hint: "瀏覽器 OAuth 登入" },
+      { type: "box", name: "Box", auth: "oauth", hint: "瀏覽器 OAuth 登入" },
+      { type: "pcloud", name: "pCloud", auth: "oauth", hint: "瀏覽器 OAuth 登入" },
+      { type: "mega", name: "Mega", auth: "credentials", hint: "帳號密碼登入" },
+      { type: "protondrive", name: "Proton Drive", auth: "credentials", hint: "帳號密碼登入" },
+      { type: "yandex", name: "Yandex Disk", auth: "oauth", hint: "瀏覽器 OAuth 登入" },
+      { type: "koofr", name: "Koofr", auth: "credentials", hint: "帳號密碼登入" }
+    ]
+  },
+  {
+    category: "物件儲存 (S3 & Cloud Storage)",
+    items: [
+      { type: "s3", name: "Amazon S3 或相容物件儲存 (Cloudflare R2, MinIO, Wasabi...)", auth: "s3", hint: "Access Key / Secret Key 金鑰認證 (免瀏覽器)" },
+      { type: "b2", name: "Backblaze B2 (原生 API)", auth: "b2", hint: "Account ID / Application Key" },
+      { type: "gcs", name: "Google Cloud Storage (GCS)", auth: "oauth", hint: "Google Cloud 物件儲存" },
+      { type: "azureblob", name: "Microsoft Azure Blob 儲存體", auth: "azure", hint: "Storage Account / Key" }
+    ]
+  },
+  {
+    category: "標準傳輸協定與網路芳鄰",
+    items: [
+      { type: "webdav", name: "WebDAV (Nextcloud, ownCloud, Synology, 堅果雲...)", auth: "webdav", hint: "URL 與帳號密碼" },
+      { type: "smb", name: "SMB / CIFS (Windows 網路芳鄰 / Samba)", auth: "smb", hint: "Host, 帳號密碼與 Domain" },
+      { type: "sftp", name: "SFTP / SSH 伺服器", auth: "sftp", hint: "Host, Port 與帳密/私鑰" },
+      { type: "ftp", name: "FTP 伺服器", auth: "ftp", hint: "Host, Port 與帳號密碼" }
+    ]
+  },
+  {
+    category: "進階虛擬與本機儲存",
+    items: [
+      { type: "local", name: "本機路徑 / 外接硬碟 (Local)", auth: "local", hint: "本機資料夾直接掛載為虛擬磁碟" },
+      { type: "crypt", name: "加密硬碟 (Crypt - 加密現有雲端)", auth: "crypt", hint: "端對端加密透明保險箱" },
+      { type: "union", name: "聯合磁碟 (Union - 合併多個硬碟空間)", auth: "union", hint: "多個遠端聚合成單一磁碟代號" }
+    ]
+  }
+];
+
+function isOAuthType(type = "") {
+  const t = (type || "").toLowerCase();
+  return ["drive", "onedrive", "dropbox", "box", "pcloud", "yandex"].includes(t);
+}
+
 // Add Remote Modal State
 const newRemoteForm = reactive({
   name: "",
@@ -111,8 +181,22 @@ const newRemoteForm = reactive({
   pass: "",
   host: "",
   port: "21",
+  domain: "",
   clientId: "",
   clientSecret: "",
+  // S3 Specific
+  s3Provider: "AWS",
+  s3AccessKey: "",
+  s3SecretKey: "",
+  s3Region: "us-east-1",
+  s3Endpoint: "",
+  s3ForcePathStyle: false,
+  s3EnvAuth: false,
+  showSecretKey: false,
+  // Other storage
+  account: "",
+  key: "",
+  searchProvider: "",
   isCreating: false
 });
 
@@ -126,10 +210,80 @@ const editRemoteForm = reactive({
   pass: "",
   host: "",
   port: "21",
+  domain: "",
   clientId: "",
   clientSecret: "",
+  // S3 Specific
+  s3Provider: "AWS",
+  s3AccessKey: "",
+  s3SecretKey: "",
+  s3Region: "",
+  s3Endpoint: "",
+  s3ForcePathStyle: false,
+  s3EnvAuth: false,
+  showSecretKey: false,
+  // Other storage
+  account: "",
+  key: "",
   isSaving: false,
   isReconnecting: false
+});
+
+function onS3ProviderSelect(form, provValue) {
+  form.s3Provider = provValue;
+  const found = S3_PROVIDERS.find((p) => p.value === provValue);
+  if (found) {
+    if (found.defaultRegion && !form.s3Region) {
+      form.s3Region = found.defaultRegion;
+    }
+    if (found.defaultEndpoint && !form.s3Endpoint) {
+      form.s3Endpoint = found.defaultEndpoint;
+    }
+    if (found.forcePathStyle !== undefined) {
+      form.s3ForcePathStyle = found.forcePathStyle;
+    }
+  }
+}
+
+async function handleOpenRcloneTerminal() {
+  try {
+    await invoke("open_rclone_config_terminal", {
+      rclonePath: customRclonePath.value.trim() || null
+    });
+    showToast("已在獨立視窗啟動 Rclone 原版互動設定精靈！完成設定後請回此處點擊重新整理。", "info");
+  } catch (err) {
+    showToast(`啟動原版設定終端失敗: ${err}`, "error");
+  }
+}
+
+const filteredStorageCategories = computed(() => {
+  const kw = (newRemoteForm.searchProvider || "").trim().toLowerCase();
+  if (!kw) return STORAGE_CATEGORIES;
+  return STORAGE_CATEGORIES.map((cat) => {
+    return {
+      category: cat.category,
+      items: cat.items.filter(
+        (it) =>
+          it.name.toLowerCase().includes(kw) ||
+          it.type.toLowerCase().includes(kw) ||
+          (it.hint && it.hint.toLowerCase().includes(kw))
+      )
+    };
+  }).filter((cat) => cat.items.length > 0);
+});
+
+const allOtherRcloneProviders = computed(() => {
+  const popularTypes = new Set();
+  STORAGE_CATEGORIES.forEach((c) => c.items.forEach((i) => popularTypes.add(i.type)));
+  const kw = (newRemoteForm.searchProvider || "").trim().toLowerCase();
+  if (!supportedProviders.value || supportedProviders.value.length === 0) return [];
+  return supportedProviders.value
+    .filter((p) => !popularTypes.has(p.Prefix))
+    .filter((p) => {
+      if (!kw) return true;
+      const desc = p.Description || p.Name || "";
+      return p.Prefix.toLowerCase().includes(kw) || desc.toLowerCase().includes(kw);
+    });
 });
 
 // Sync & Compare State (RcloneView Plus)
@@ -191,7 +345,7 @@ const editTaskForm = reactive({
 let schedulerTimer = null;
 
 // GitHub Auto-Update State & Settings
-const CURRENT_VERSION = "1.6.0";
+const CURRENT_VERSION = "1.6.1";
 const GITHUB_REPO = "alan0830/rclone-drive";
 
 const savedUpdateSettings = JSON.parse(localStorage.getItem("rclone_update_settings") || "{}");
@@ -352,14 +506,26 @@ async function openUrl(url) {
 
 // Provider details helper
 function getProviderDetails(type = "") {
-  const t = type.toLowerCase();
-  if (t.includes("onedrive")) return { name: "OneDrive", color: "#0078D4", bg: "rgba(0, 120, 212, 0.15)" };
-  if (t.includes("drive")) return { name: "Google Drive", color: "#4285F4", bg: "rgba(66, 133, 244, 0.15)" };
+  const t = (type || "").toLowerCase();
+  if (t.includes("onedrive")) return { name: "Microsoft OneDrive", color: "#0078D4", bg: "rgba(0, 120, 212, 0.15)" };
+  if (t.includes("drive") && !t.includes("onedrive") && !t.includes("proton") && !t.includes("huawei")) return { name: "Google Drive", color: "#4285F4", bg: "rgba(66, 133, 244, 0.15)" };
   if (t.includes("photo")) return { name: "Google Photos", color: "#EA4335", bg: "rgba(234, 67, 53, 0.15)" };
   if (t.includes("dropbox")) return { name: "Dropbox", color: "#0061FF", bg: "rgba(0, 97, 255, 0.15)" };
-  if (t.includes("s3")) return { name: "Amazon S3", color: "#FF9900", bg: "rgba(255, 153, 0, 0.15)" };
+  if (t.includes("s3")) return { name: "Amazon S3 / 物件儲存", color: "#FF9900", bg: "rgba(255, 153, 0, 0.15)" };
+  if (t.includes("b2")) return { name: "Backblaze B2", color: "#E01F26", bg: "rgba(224, 31, 38, 0.15)" };
+  if (t.includes("azureblob") || t.includes("azurefiles")) return { name: "Azure 儲存體", color: "#0089D6", bg: "rgba(0, 137, 214, 0.15)" };
+  if (t.includes("gcs") || t.includes("googlecloudstorage")) return { name: "Google Cloud Storage", color: "#4285F4", bg: "rgba(66, 133, 244, 0.15)" };
+  if (t.includes("box")) return { name: "Box", color: "#0061D5", bg: "rgba(0, 97, 213, 0.15)" };
+  if (t.includes("pcloud")) return { name: "pCloud", color: "#13B5EA", bg: "rgba(19, 181, 234, 0.15)" };
+  if (t.includes("mega")) return { name: "Mega", color: "#D90007", bg: "rgba(217, 0, 7, 0.15)" };
+  if (t.includes("proton")) return { name: "Proton Drive", color: "#6D4AFF", bg: "rgba(109, 74, 255, 0.15)" };
   if (t.includes("webdav")) return { name: "WebDAV", color: "#10B981", bg: "rgba(16, 185, 129, 0.15)" };
-  if (t.includes("ftp")) return { name: "FTP / SFTP", color: "#8B5CF6", bg: "rgba(139, 92, 246, 0.15)" };
+  if (t.includes("smb")) return { name: "SMB 網路芳鄰", color: "#3B82F6", bg: "rgba(59, 130, 246, 0.15)" };
+  if (t.includes("sftp")) return { name: "SFTP / SSH", color: "#8B5CF6", bg: "rgba(139, 92, 246, 0.15)" };
+  if (t.includes("ftp")) return { name: "FTP 伺服器", color: "#A855F7", bg: "rgba(168, 85, 247, 0.15)" };
+  if (t.includes("local")) return { name: "本機磁碟 (Local)", color: "#14B8A6", bg: "rgba(20, 184, 166, 0.15)" };
+  if (t.includes("crypt")) return { name: "加密硬碟 (Crypt)", color: "#F59E0B", bg: "rgba(245, 158, 11, 0.15)" };
+  if (t.includes("union")) return { name: "聯合磁碟 (Union)", color: "#EC4899", bg: "rgba(236, 72, 153, 0.15)" };
   return { name: type || "雲端儲存", color: "#38BDF8", bg: "rgba(56, 189, 248, 0.15)" };
 }
 
@@ -663,22 +829,41 @@ async function unmountAll() {
 
 // GUI Add Remote
 async function submitAddRemote() {
-  if (!newRemoteForm.name.trim()) {
-    showToast("請輸入遠端名稱！", "error");
+  const nameTrimmed = (newRemoteForm.name || "").trim();
+  if (!nameTrimmed) {
+    showToast("請輸入雲端硬碟名稱！", "error");
+    return;
+  }
+  if (/[\\/:*?"<>|\[\]]/.test(nameTrimmed)) {
+    showToast("雲端名稱不可包含特殊字元 (: / \\ [ ] * ? < > | \")", "error");
     return;
   }
 
   newRemoteForm.isCreating = true;
   const params = {};
 
-  if (newRemoteForm.type === "drive" || newRemoteForm.type === "onedrive") {
+  if (isOAuthType(newRemoteForm.type)) {
     if (newRemoteForm.clientId.trim()) params.client_id = newRemoteForm.clientId.trim();
     if (newRemoteForm.clientSecret.trim()) params.client_secret = newRemoteForm.clientSecret.trim();
+  } else if (newRemoteForm.type === "s3") {
+    params.provider = newRemoteForm.s3Provider || "AWS";
+    if (newRemoteForm.s3AccessKey.trim()) params.access_key_id = newRemoteForm.s3AccessKey.trim();
+    if (newRemoteForm.s3SecretKey.trim()) params.secret_access_key = newRemoteForm.s3SecretKey.trim();
+    if (newRemoteForm.s3Region.trim()) params.region = newRemoteForm.s3Region.trim();
+    if (newRemoteForm.s3Endpoint.trim()) params.endpoint = newRemoteForm.s3Endpoint.trim();
+    if (newRemoteForm.s3ForcePathStyle) params.force_path_style = "true";
+    if (newRemoteForm.s3EnvAuth) params.env_auth = "true";
   } else if (newRemoteForm.type === "webdav") {
     params.url = newRemoteForm.url;
     params.vendor = "other";
     params.user = newRemoteForm.user;
     params.pass = newRemoteForm.pass;
+  } else if (newRemoteForm.type === "smb") {
+    params.host = newRemoteForm.host;
+    params.user = newRemoteForm.user;
+    params.pass = newRemoteForm.pass;
+    if (newRemoteForm.port) params.port = newRemoteForm.port;
+    if (newRemoteForm.domain) params.domain = newRemoteForm.domain;
   } else if (newRemoteForm.type === "ftp") {
     params.host = newRemoteForm.host;
     params.port = newRemoteForm.port || "21";
@@ -686,14 +871,27 @@ async function submitAddRemote() {
     params.pass = newRemoteForm.pass;
   } else if (newRemoteForm.type === "sftp") {
     params.host = newRemoteForm.host;
+    params.port = newRemoteForm.port || "22";
     params.user = newRemoteForm.user;
     params.pass = newRemoteForm.pass;
+  } else if (newRemoteForm.type === "b2") {
+    if (newRemoteForm.account) params.account = newRemoteForm.account.trim();
+    if (newRemoteForm.key) params.key = newRemoteForm.key.trim();
+  } else if (newRemoteForm.type === "azureblob") {
+    if (newRemoteForm.account) params.account = newRemoteForm.account.trim();
+    if (newRemoteForm.key) params.key = newRemoteForm.key.trim();
+  } else if (newRemoteForm.type === "mega") {
+    params.user = newRemoteForm.user;
+    params.pass = newRemoteForm.pass;
+  } else if (newRemoteForm.type === "protondrive") {
+    params.username = newRemoteForm.user;
+    params.password = newRemoteForm.pass;
   }
 
   try {
     const msg = await invoke("create_remote_gui", {
       rclonePath: customRclonePath.value.trim() || null,
-      name: newRemoteForm.name.trim(),
+      name: nameTrimmed,
       remoteType: newRemoteForm.type,
       params
     });
@@ -707,6 +905,12 @@ async function submitAddRemote() {
     newRemoteForm.host = "";
     newRemoteForm.clientId = "";
     newRemoteForm.clientSecret = "";
+    newRemoteForm.s3AccessKey = "";
+    newRemoteForm.s3SecretKey = "";
+    newRemoteForm.s3Endpoint = "";
+    newRemoteForm.account = "";
+    newRemoteForm.key = "";
+    newRemoteForm.domain = "";
     await refreshAll();
   } catch (err) {
     showToast(`建立失敗: ${err}`, "error");
@@ -725,8 +929,21 @@ async function openEditModal(remote) {
   editRemoteForm.pass = "";
   editRemoteForm.host = "";
   editRemoteForm.port = "21";
+  editRemoteForm.domain = "";
   editRemoteForm.clientId = "";
   editRemoteForm.clientSecret = "";
+  // S3
+  editRemoteForm.s3Provider = "AWS";
+  editRemoteForm.s3AccessKey = "";
+  editRemoteForm.s3SecretKey = "";
+  editRemoteForm.s3Region = "";
+  editRemoteForm.s3Endpoint = "";
+  editRemoteForm.s3ForcePathStyle = false;
+  editRemoteForm.s3EnvAuth = false;
+  editRemoteForm.showSecretKey = false;
+  // Others
+  editRemoteForm.account = "";
+  editRemoteForm.key = "";
 
   try {
     const details = await invoke("get_remote_detail", {
@@ -737,8 +954,20 @@ async function openEditModal(remote) {
     if (details.user) editRemoteForm.user = details.user;
     if (details.host) editRemoteForm.host = details.host;
     if (details.port) editRemoteForm.port = details.port;
+    if (details.domain) editRemoteForm.domain = details.domain;
     if (details.client_id) editRemoteForm.clientId = details.client_id;
     if (details.client_secret) editRemoteForm.clientSecret = details.client_secret;
+    // S3
+    if (details.provider) editRemoteForm.s3Provider = details.provider;
+    if (details.access_key_id) editRemoteForm.s3AccessKey = details.access_key_id;
+    if (details.secret_access_key) editRemoteForm.s3SecretKey = details.secret_access_key;
+    if (details.region) editRemoteForm.s3Region = details.region;
+    if (details.endpoint) editRemoteForm.s3Endpoint = details.endpoint;
+    if (details.force_path_style === "true") editRemoteForm.s3ForcePathStyle = true;
+    if (details.env_auth === "true") editRemoteForm.s3EnvAuth = true;
+    // B2 / Azure
+    if (details.account) editRemoteForm.account = details.account;
+    if (details.key) editRemoteForm.key = details.key;
   } catch (err) {
     console.error("載入設定詳情失敗:", err);
   }
@@ -761,9 +990,17 @@ async function submitEditRemote() {
   editRemoteForm.isSaving = true;
   const params = {};
 
-  if (editRemoteForm.type.includes("drive") || editRemoteForm.type.includes("onedrive")) {
+  if (isOAuthType(editRemoteForm.type)) {
     params.client_id = editRemoteForm.clientId.trim();
     params.client_secret = editRemoteForm.clientSecret.trim();
+  } else if (editRemoteForm.type.includes("s3")) {
+    if (editRemoteForm.s3Provider) params.provider = editRemoteForm.s3Provider;
+    if (editRemoteForm.s3AccessKey) params.access_key_id = editRemoteForm.s3AccessKey.trim();
+    if (editRemoteForm.s3SecretKey) params.secret_access_key = editRemoteForm.s3SecretKey.trim();
+    if (editRemoteForm.s3Region) params.region = editRemoteForm.s3Region.trim();
+    if (editRemoteForm.s3Endpoint) params.endpoint = editRemoteForm.s3Endpoint.trim();
+    params.force_path_style = editRemoteForm.s3ForcePathStyle ? "true" : "false";
+    params.env_auth = editRemoteForm.s3EnvAuth ? "true" : "false";
   } else if (editRemoteForm.type === "webdav") {
     if (editRemoteForm.url) params.url = editRemoteForm.url;
     if (editRemoteForm.user) params.user = editRemoteForm.user;
@@ -773,6 +1010,15 @@ async function submitEditRemote() {
     if (editRemoteForm.port) params.port = editRemoteForm.port;
     if (editRemoteForm.user) params.user = editRemoteForm.user;
     if (editRemoteForm.pass) params.pass = editRemoteForm.pass;
+  } else if (editRemoteForm.type === "smb") {
+    if (editRemoteForm.host) params.host = editRemoteForm.host;
+    if (editRemoteForm.port) params.port = editRemoteForm.port;
+    if (editRemoteForm.user) params.user = editRemoteForm.user;
+    if (editRemoteForm.pass) params.pass = editRemoteForm.pass;
+    if (editRemoteForm.domain) params.domain = editRemoteForm.domain;
+  } else if (editRemoteForm.type === "b2" || editRemoteForm.type === "azureblob") {
+    if (editRemoteForm.account) params.account = editRemoteForm.account.trim();
+    if (editRemoteForm.key) params.key = editRemoteForm.key.trim();
   }
 
   try {
@@ -1494,6 +1740,7 @@ onMounted(async () => {
   applyTheme(isLightMode.value);
   await checkAutostart();
   await refreshAll(true);
+  loadSupportedProviders();
   schedulerTimer = setInterval(runSchedulerCycle, 60000);
   setTimeout(() => {
     checkForUpdates(false);
@@ -2613,11 +2860,21 @@ onUnmounted(() => {
         <div class="modal-header">
           <div class="modal-title">
             <PlusCircle class="modal-title-icon" />
-            <span>新增雲端硬碟連線 (純圖形精靈)</span>
+            <span>新增雲端硬碟連線 (圖形精靈)</span>
           </div>
-          <button class="close-btn" @click="showAddRemoteModal = false">
-            <X class="close-icon" />
-          </button>
+          <div class="modal-header-actions">
+            <button
+              class="btn btn-secondary btn-sm"
+              @click="handleOpenRcloneTerminal"
+              title="開啟 Windows 命令提示字元執行 rclone config 原版互動設定"
+            >
+              <Terminal class="btn-icon" />
+              <span>原版終端精靈 (rclone config)</span>
+            </button>
+            <button class="close-btn" @click="showAddRemoteModal = false">
+              <X class="close-icon" />
+            </button>
+          </div>
         </div>
 
         <div class="modal-body">
@@ -2627,34 +2884,180 @@ onUnmounted(() => {
               type="text"
               v-model="newRemoteForm.name"
               class="modal-input"
-              placeholder="例如：MyGoogleDrive, CompanyNAS"
+              placeholder="例如：MyGoogleDrive, MyS3Storage, HomeNAS"
             />
+            <span class="field-hint">供本機辨識與掛載的唯一名稱，不可包含特殊字元。</span>
           </div>
 
           <div class="setting-group">
-            <label class="group-title">雲端服務類型 (Storage Provider)</label>
+            <div class="flex-between mb-1">
+              <label class="group-title">雲端服務類型 (Storage Provider)</label>
+              <span class="text-xs text-muted">原版支援 60+ 種雲端服務</span>
+            </div>
+            <!-- Provider Filter / Search -->
+            <div class="search-input-wrapper mb-2">
+              <Search class="search-icon" />
+              <input
+                type="text"
+                v-model="newRemoteForm.searchProvider"
+                class="modal-input search-input"
+                placeholder="快速過濾雲端服務（例如：s3, drive, webdav, smb, b2...）"
+              />
+              <button
+                v-if="newRemoteForm.searchProvider"
+                class="search-clear-btn"
+                @click="newRemoteForm.searchProvider = ''"
+              >
+                <X class="clear-icon" />
+              </button>
+            </div>
+
             <select v-model="newRemoteForm.type" class="modal-input">
-              <option value="drive">Google Drive (個人 / 企業雲端硬碟)</option>
-              <option value="onedrive">Microsoft OneDrive</option>
-              <option value="dropbox">Dropbox</option>
-              <option value="webdav">WebDAV (Nextcloud, Synology, QNAP...)</option>
-              <option value="ftp">FTP 伺服器</option>
-              <option value="sftp">SFTP / SSH 伺服器</option>
-              <option value="s3">Amazon S3 或相容物件儲存</option>
+              <optgroup
+                v-for="cat in filteredStorageCategories"
+                :key="cat.category"
+                :label="cat.category"
+              >
+                <option v-for="it in cat.items" :key="it.type" :value="it.type">
+                  {{ it.name }}
+                </option>
+              </optgroup>
+              <optgroup
+                v-if="allOtherRcloneProviders.length > 0"
+                :label="'更多 Rclone 原版儲存提供商 (' + allOtherRcloneProviders.length + ' 種)'"
+              >
+                <option v-for="p in allOtherRcloneProviders" :key="p.Prefix" :value="p.Prefix">
+                  {{ p.Description || p.Name }} ({{ p.Prefix }})
+                </option>
+              </optgroup>
             </select>
           </div>
 
-          <!-- OAuth Notice for Google / OneDrive -->
-          <div v-if="newRemoteForm.type === 'drive' || newRemoteForm.type === 'onedrive'" class="info-box">
+          <!-- OAuth Notice for Google Drive / OneDrive / Dropbox / Box / pCloud / Yandex -->
+          <div v-if="isOAuthType(newRemoteForm.type)" class="info-box">
             <div class="info-title">
-              <Info class="info-icon" />
-              <span>瀏覽器授權登入</span>
+              <Info class="info-icon text-cyan" />
+              <span class="text-cyan font-bold">瀏覽器 OAuth 授權登入</span>
             </div>
             <p class="group-desc">
-              點擊「立即建立」後，系統會自動在您的預設瀏覽器中開啟官方登入授權頁面。<br />
-              登入完成並授權後，即可自動完成設定，完全無需輸入任何命令指令！
+              點擊下方「立即建立」後，系統將自動於您的預設瀏覽器中開啟官方登入授權頁面。<br />
+              在瀏覽器登入授權成功後即完成連線，完全無需繁瑣設定！
             </p>
+            <!-- Optional Advanced OAuth Client ID / Secret -->
+            <details class="advanced-details mt-2">
+              <summary class="advanced-summary">進階自訂 Client ID / Secret (選填)</summary>
+              <div class="setting-group mt-2">
+                <input
+                  type="text"
+                  v-model="newRemoteForm.clientId"
+                  class="modal-input"
+                  placeholder="自訂 Client ID (留空使用官方預設)"
+                />
+                <input
+                  type="password"
+                  v-model="newRemoteForm.clientSecret"
+                  class="modal-input mt-2"
+                  placeholder="自訂 Client Secret (留空使用官方預設)"
+                />
+              </div>
+            </details>
           </div>
+
+          <!-- S3 / S3-Compatible Object Storage Inputs -->
+          <template v-if="newRemoteForm.type === 's3'">
+            <!-- S3 Key Auth Explanation Alert -->
+            <div class="info-box s3-alert">
+              <div class="info-title">
+                <ShieldCheck class="info-icon text-amber" />
+                <span class="font-bold text-amber">AWS S3 / 物件儲存認證說明 (金鑰直連)</span>
+              </div>
+              <p class="group-desc">
+                💡 <b>S3 採用金鑰直接認證</b>：S3 與相容雲端服務透過 API 的 <code>Access Key ID</code> 與 <code>Secret Access Key</code> 進行授權，建立時<b>不會也不需要開啟瀏覽器跳轉頁面</b>！請填寫下方金鑰後點擊「立即建立」即可連線。<br/>
+                若您使用的是 AWS SSO、IAM Identity Center 或需引導式問答，可點擊右上角「⚡ 原版終端精靈」。
+              </p>
+            </div>
+
+            <div class="setting-group">
+              <label class="group-title">S3 儲存子類型 (S3 Provider)</label>
+              <select
+                :value="newRemoteForm.s3Provider"
+                @change="onS3ProviderSelect(newRemoteForm, $event.target.value)"
+                class="modal-input"
+              >
+                <option v-for="sp in S3_PROVIDERS" :key="sp.value" :value="sp.value">
+                  {{ sp.label }}
+                </option>
+              </select>
+            </div>
+
+            <div class="setting-group">
+              <label class="group-title">存取金鑰 ID (Access Key ID)</label>
+              <input
+                type="text"
+                v-model="newRemoteForm.s3AccessKey"
+                class="modal-input font-mono"
+                placeholder="例如：AKIAIOSFODNN7EXAMPLE"
+              />
+            </div>
+
+            <div class="setting-group">
+              <label class="group-title">私密金鑰 (Secret Access Key)</label>
+              <div class="password-wrapper">
+                <input
+                  :type="newRemoteForm.showSecretKey ? 'text' : 'password'"
+                  v-model="newRemoteForm.s3SecretKey"
+                  class="modal-input font-mono pr-10"
+                  placeholder="例如：wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                />
+                <button
+                  type="button"
+                  class="toggle-eye-btn"
+                  @click="newRemoteForm.showSecretKey = !newRemoteForm.showSecretKey"
+                  :title="newRemoteForm.showSecretKey ? '隱藏金鑰' : '顯示金鑰'"
+                >
+                  <EyeOff v-if="newRemoteForm.showSecretKey" class="eye-icon" />
+                  <Eye v-else class="eye-icon" />
+                </button>
+              </div>
+            </div>
+
+            <div class="grid-2-col">
+              <div class="setting-group">
+                <label class="group-title">服務區域 (Region)</label>
+                <input
+                  type="text"
+                  v-model="newRemoteForm.s3Region"
+                  class="modal-input font-mono"
+                  placeholder="例如：us-east-1, ap-northeast-1, auto"
+                />
+              </div>
+
+              <div class="setting-group">
+                <label class="group-title">端點網址 (Endpoint URL)</label>
+                <input
+                  type="text"
+                  v-model="newRemoteForm.s3Endpoint"
+                  class="modal-input font-mono"
+                  placeholder="AWS 官方可留空；自架或 Cloudflare R2 請輸入完整網址"
+                />
+              </div>
+            </div>
+
+            <!-- S3 Advanced Options -->
+            <details class="advanced-details mt-2">
+              <summary class="advanced-summary">進階 S3 選項 (路徑樣式 / IAM)</summary>
+              <div class="setting-group mt-2">
+                <label class="checkbox-label">
+                  <input type="checkbox" v-model="newRemoteForm.s3ForcePathStyle" />
+                  <span>強制路徑樣式 (Force Path Style) — <i>MinIO、Ceph 或自架 S3 通常需勾選</i></span>
+                </label>
+                <label class="checkbox-label mt-1">
+                  <input type="checkbox" v-model="newRemoteForm.s3EnvAuth" />
+                  <span>從環境變數或 AWS IAM 角色讀取憑證 (Env Auth)</span>
+                </label>
+              </div>
+            </details>
+          </template>
 
           <!-- WebDAV Inputs -->
           <template v-if="newRemoteForm.type === 'webdav'">
@@ -2662,29 +3065,99 @@ onUnmounted(() => {
               <label class="group-title">WebDAV URL</label>
               <input type="text" v-model="newRemoteForm.url" class="modal-input" placeholder="https://example.com/remote.php/webdav" />
             </div>
-            <div class="setting-group">
-              <label class="group-title">使用者名稱</label>
-              <input type="text" v-model="newRemoteForm.user" class="modal-input" placeholder="Username" />
+            <div class="grid-2-col">
+              <div class="setting-group">
+                <label class="group-title">使用者名稱</label>
+                <input type="text" v-model="newRemoteForm.user" class="modal-input" placeholder="Username" />
+              </div>
+              <div class="setting-group">
+                <label class="group-title">密碼 / 應用程式密碼</label>
+                <input type="password" v-model="newRemoteForm.pass" class="modal-input" placeholder="Password" />
+              </div>
+            </div>
+          </template>
+
+          <!-- SMB / Windows Shared Folder Inputs -->
+          <template v-if="newRemoteForm.type === 'smb'">
+            <div class="grid-2-col">
+              <div class="setting-group">
+                <label class="group-title">伺服器主機位置 (Host)</label>
+                <input type="text" v-model="newRemoteForm.host" class="modal-input" placeholder="192.168.1.100 或 nas.local" />
+              </div>
+              <div class="setting-group">
+                <label class="group-title">連接埠 (Port)</label>
+                <input type="text" v-model="newRemoteForm.port" class="modal-input" placeholder="445" />
+              </div>
+            </div>
+            <div class="grid-2-col">
+              <div class="setting-group">
+                <label class="group-title">使用者名稱 (User)</label>
+                <input type="text" v-model="newRemoteForm.user" class="modal-input" placeholder="Username" />
+              </div>
+              <div class="setting-group">
+                <label class="group-title">密碼 (Password)</label>
+                <input type="password" v-model="newRemoteForm.pass" class="modal-input" placeholder="Password" />
+              </div>
             </div>
             <div class="setting-group">
-              <label class="group-title">密碼 / 應用程式密碼</label>
-              <input type="password" v-model="newRemoteForm.pass" class="modal-input" placeholder="Password" />
+              <label class="group-title">網域名稱 (Domain，選填)</label>
+              <input type="text" v-model="newRemoteForm.domain" class="modal-input" placeholder="WORKGROUP" />
             </div>
           </template>
 
           <!-- FTP / SFTP Inputs -->
           <template v-if="newRemoteForm.type === 'ftp' || newRemoteForm.type === 'sftp'">
-            <div class="setting-group">
-              <label class="group-title">主機位置 (Host)</label>
-              <input type="text" v-model="newRemoteForm.host" class="modal-input" placeholder="192.168.1.100 或 ftp.example.com" />
+            <div class="grid-2-col">
+              <div class="setting-group">
+                <label class="group-title">主機位置 (Host)</label>
+                <input type="text" v-model="newRemoteForm.host" class="modal-input" placeholder="192.168.1.100 或 ftp.example.com" />
+              </div>
+              <div class="setting-group">
+                <label class="group-title">連接埠 (Port)</label>
+                <input type="text" v-model="newRemoteForm.port" class="modal-input" :placeholder="newRemoteForm.type === 'sftp' ? '22' : '21'" />
+              </div>
             </div>
-            <div class="setting-group" v-if="newRemoteForm.type === 'ftp'">
-              <label class="group-title">連接埠 (Port)</label>
-              <input type="text" v-model="newRemoteForm.port" class="modal-input" placeholder="21" />
+            <div class="grid-2-col">
+              <div class="setting-group">
+                <label class="group-title">使用者帳號</label>
+                <input type="text" v-model="newRemoteForm.user" class="modal-input" placeholder="Username" />
+              </div>
+              <div class="setting-group">
+                <label class="group-title">密碼</label>
+                <input type="password" v-model="newRemoteForm.pass" class="modal-input" placeholder="Password" />
+              </div>
+            </div>
+          </template>
+
+          <!-- Backblaze B2 Native API -->
+          <template v-if="newRemoteForm.type === 'b2'">
+            <div class="setting-group">
+              <label class="group-title">Account ID / Key ID</label>
+              <input type="text" v-model="newRemoteForm.account" class="modal-input font-mono" placeholder="Backblaze Account ID" />
             </div>
             <div class="setting-group">
-              <label class="group-title">使用者帳號</label>
-              <input type="text" v-model="newRemoteForm.user" class="modal-input" placeholder="Username" />
+              <label class="group-title">Application Key</label>
+              <input type="password" v-model="newRemoteForm.key" class="modal-input font-mono" placeholder="Backblaze Application Key" />
+            </div>
+          </template>
+
+          <!-- Azure Blob Storage -->
+          <template v-if="newRemoteForm.type === 'azureblob'">
+            <div class="setting-group">
+              <label class="group-title">Storage Account Name</label>
+              <input type="text" v-model="newRemoteForm.account" class="modal-input" placeholder="Azure Storage Account Name" />
+            </div>
+            <div class="setting-group">
+              <label class="group-title">Storage Account Key</label>
+              <input type="password" v-model="newRemoteForm.key" class="modal-input font-mono" placeholder="Azure Storage Key" />
+            </div>
+          </template>
+
+          <!-- Mega / ProtonDrive -->
+          <template v-if="newRemoteForm.type === 'mega' || newRemoteForm.type === 'protondrive'">
+            <div class="setting-group">
+              <label class="group-title">帳號 (Email)</label>
+              <input type="text" v-model="newRemoteForm.user" class="modal-input" placeholder="your-email@example.com" />
             </div>
             <div class="setting-group">
               <label class="group-title">密碼</label>
@@ -2701,7 +3174,12 @@ onUnmounted(() => {
             :disabled="newRemoteForm.isCreating"
           >
             <Disc3 class="btn-icon" :class="{ 'spin-anim': newRemoteForm.isCreating }" />
-            <span>{{ newRemoteForm.isCreating ? '建立中 (請在瀏覽器完成登入)...' : '立即建立' }}</span>
+            <span v-if="newRemoteForm.isCreating">
+              {{ isOAuthType(newRemoteForm.type) ? '建立中 (請在瀏覽器完成授權)...' : '正在連線建立中...' }}
+            </span>
+            <span v-else>
+              {{ isOAuthType(newRemoteForm.type) ? '🚀 立即建立 (將開啟瀏覽器授權)' : (newRemoteForm.type === 's3' ? '🚀 立即建立 S3 連線' : '🚀 立即建立') }}
+            </span>
           </button>
         </div>
       </div>
@@ -2756,6 +3234,68 @@ onUnmounted(() => {
             </button>
           </div>
 
+          <!-- S3 Edit -->
+          <template v-if="editRemoteForm.type.includes('s3')">
+            <div class="setting-group">
+              <label class="group-title">S3 儲存子類型 (S3 Provider)</label>
+              <select
+                :value="editRemoteForm.s3Provider"
+                @change="onS3ProviderSelect(editRemoteForm, $event.target.value)"
+                class="modal-input"
+              >
+                <option v-for="sp in S3_PROVIDERS" :key="sp.value" :value="sp.value">
+                  {{ sp.label }}
+                </option>
+              </select>
+            </div>
+            <div class="setting-group">
+              <label class="group-title">存取金鑰 ID (Access Key ID)</label>
+              <input type="text" v-model="editRemoteForm.s3AccessKey" class="modal-input font-mono" placeholder="Access Key ID" />
+            </div>
+            <div class="setting-group">
+              <label class="group-title">私密金鑰 (Secret Access Key)</label>
+              <div class="password-wrapper">
+                <input
+                  :type="editRemoteForm.showSecretKey ? 'text' : 'password'"
+                  v-model="editRemoteForm.s3SecretKey"
+                  class="modal-input font-mono pr-10"
+                  placeholder="留空代表不變更金鑰"
+                />
+                <button
+                  type="button"
+                  class="toggle-eye-btn"
+                  @click="editRemoteForm.showSecretKey = !editRemoteForm.showSecretKey"
+                >
+                  <EyeOff v-if="editRemoteForm.showSecretKey" class="eye-icon" />
+                  <Eye v-else class="eye-icon" />
+                </button>
+              </div>
+            </div>
+            <div class="grid-2-col">
+              <div class="setting-group">
+                <label class="group-title">服務區域 (Region)</label>
+                <input type="text" v-model="editRemoteForm.s3Region" class="modal-input font-mono" placeholder="例如：us-east-1" />
+              </div>
+              <div class="setting-group">
+                <label class="group-title">端點網址 (Endpoint URL)</label>
+                <input type="text" v-model="editRemoteForm.s3Endpoint" class="modal-input font-mono" placeholder="自訂端點" />
+              </div>
+            </div>
+            <details class="advanced-details mt-2">
+              <summary class="advanced-summary">進階 S3 選項</summary>
+              <div class="setting-group mt-2">
+                <label class="checkbox-label">
+                  <input type="checkbox" v-model="editRemoteForm.s3ForcePathStyle" />
+                  <span>強制路徑樣式 (Force Path Style)</span>
+                </label>
+                <label class="checkbox-label mt-1">
+                  <input type="checkbox" v-model="editRemoteForm.s3EnvAuth" />
+                  <span>從環境變數或 IAM 讀取憑證 (Env Auth)</span>
+                </label>
+              </div>
+            </details>
+          </template>
+
           <!-- WebDAV Edit -->
           <template v-if="editRemoteForm.type === 'webdav'">
             <div class="setting-group">
@@ -2769,6 +3309,34 @@ onUnmounted(() => {
             <div class="setting-group">
               <label class="group-title">新密碼 (若不修改請留空)</label>
               <input type="password" v-model="editRemoteForm.pass" class="modal-input" placeholder="留空代表不變更密碼" />
+            </div>
+          </template>
+
+          <!-- SMB Edit -->
+          <template v-if="editRemoteForm.type === 'smb'">
+            <div class="grid-2-col">
+              <div class="setting-group">
+                <label class="group-title">主機位置 (Host)</label>
+                <input type="text" v-model="editRemoteForm.host" class="modal-input" />
+              </div>
+              <div class="setting-group">
+                <label class="group-title">連接埠 (Port)</label>
+                <input type="text" v-model="editRemoteForm.port" class="modal-input" placeholder="445" />
+              </div>
+            </div>
+            <div class="grid-2-col">
+              <div class="setting-group">
+                <label class="group-title">使用者帳號</label>
+                <input type="text" v-model="editRemoteForm.user" class="modal-input" />
+              </div>
+              <div class="setting-group">
+                <label class="group-title">新密碼 (若不修改請留空)</label>
+                <input type="password" v-model="editRemoteForm.pass" class="modal-input" placeholder="留空代表不變更密碼" />
+              </div>
+            </div>
+            <div class="setting-group">
+              <label class="group-title">網域名稱 (Domain)</label>
+              <input type="text" v-model="editRemoteForm.domain" class="modal-input" />
             </div>
           </template>
 
@@ -5502,6 +6070,137 @@ onUnmounted(() => {
 
 .btn-update-action:hover:not(:disabled) {
   filter: brightness(1.1);
+}
+
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-input-wrapper .search-icon {
+  position: absolute;
+  left: 10px;
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.search-input-wrapper .search-input {
+  padding-left: 32px;
+  padding-right: 28px;
+  font-size: 12px;
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.search-clear-btn:hover {
+  color: var(--text-main);
+}
+
+.search-clear-btn .clear-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-wrapper .modal-input {
+  padding-right: 36px;
+}
+
+.toggle-eye-btn {
+  position: absolute;
+  right: 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  transition: color 0.15s ease;
+}
+
+.toggle-eye-btn:hover {
+  color: var(--text-main);
+}
+
+.toggle-eye-btn .eye-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.s3-alert {
+  border-color: rgba(245, 158, 11, 0.3) !important;
+  background: rgba(245, 158, 11, 0.08) !important;
+}
+
+.grid-2-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.font-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+}
+
+.advanced-details {
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  background: var(--bg-hover-subtle);
+}
+
+.advanced-summary {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.advanced-summary:hover {
+  color: var(--text-main);
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  accent-color: #0284c7;
+  cursor: pointer;
 }
 
 @media (max-width: 900px) {
