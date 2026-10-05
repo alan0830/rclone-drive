@@ -41,8 +41,28 @@ import {
   Copy,
   ChevronRight,
   FolderPlus,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Sun,
+  Moon
 } from "lucide-vue-next";
+
+// Theme State (Dark / Light)
+const isLightMode = ref(localStorage.getItem("rclone_theme") === "light");
+
+function applyTheme(isLight) {
+  if (isLight) {
+    document.documentElement.setAttribute("data-theme", "light");
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+  }
+}
+
+function toggleTheme() {
+  isLightMode.value = !isLightMode.value;
+  localStorage.setItem("rclone_theme", isLightMode.value ? "light" : "dark");
+  applyTheme(isLightMode.value);
+  showToast(isLightMode.value ? "已切換為淺色主題 ☀️" : "已切換為深色主題 🌙", "info");
+}
 
 // Active Tab
 const activeTab = ref("mounts"); // 'mounts' | 'sync' | 'scheduler' | 'webgui'
@@ -89,6 +109,7 @@ const newRemoteForm = reactive({
 // Edit Remote Modal State
 const editRemoteForm = reactive({
   name: "",
+  newName: "",
   type: "",
   url: "",
   user: "",
@@ -432,6 +453,7 @@ async function submitAddRemote() {
 // Open Edit Remote Modal
 async function openEditModal(remote) {
   editRemoteForm.name = remote.name;
+  editRemoteForm.newName = remote.name;
   editRemoteForm.type = remote.remote_type;
   editRemoteForm.url = "";
   editRemoteForm.user = "";
@@ -461,6 +483,16 @@ async function openEditModal(remote) {
 
 // Submit Edit Remote
 async function submitEditRemote() {
+  const trimmedNewName = (editRemoteForm.newName || "").trim();
+  if (!trimmedNewName) {
+    showToast("雲端硬碟名稱不能為空！", "error");
+    return;
+  }
+  if (/[\\/:*?"<>|\[\]]/.test(trimmedNewName)) {
+    showToast("雲端硬碟名稱不可包含特殊字元 (: / \\ [ ] * ? < > | \")", "error");
+    return;
+  }
+
   editRemoteForm.isSaving = true;
   const params = {};
 
@@ -479,11 +511,41 @@ async function submitEditRemote() {
   }
 
   try {
+    const oldName = editRemoteForm.name;
     const msg = await invoke("update_remote_gui", {
       rclonePath: customRclonePath.value.trim() || null,
-      name: editRemoteForm.name,
+      name: oldName,
+      newName: trimmedNewName,
       params
     });
+
+    // If renamed, migrate local storage configs, auto-mount, and scheduled tasks
+    if (trimmedNewName !== oldName) {
+      if (remoteConfigs[oldName]) {
+        remoteConfigs[trimmedNewName] = { ...remoteConfigs[oldName] };
+        delete remoteConfigs[oldName];
+      }
+      const autoIdx = autoMountList.value.indexOf(oldName);
+      if (autoIdx !== -1) {
+        autoMountList.value[autoIdx] = trimmedNewName;
+        localStorage.setItem("rclone_auto_mount_list", JSON.stringify(autoMountList.value));
+      }
+      let changedTasks = false;
+      for (const t of scheduledTasks.value) {
+        if (t.source && t.source.startsWith(`${oldName}:`)) {
+          t.source = t.source.replace(`${oldName}:`, `${trimmedNewName}:`);
+          changedTasks = true;
+        }
+        if (t.dest && t.dest.startsWith(`${oldName}:`)) {
+          t.dest = t.dest.replace(`${oldName}:`, `${trimmedNewName}:`);
+          changedTasks = true;
+        }
+      }
+      if (changedTasks) {
+        localStorage.setItem("rclone_scheduled_tasks", JSON.stringify(scheduledTasks.value));
+      }
+    }
+
     showToast(msg || "設定更新成功！", "success");
     showEditRemoteModal.value = false;
     await refreshAll();
@@ -939,6 +1001,7 @@ const totalCount = computed(() => remotes.value.length);
 const isPrerequisiteMissing = computed(() => !envStatus.value.rclone_found || !envStatus.value.winfsp_found);
 
 onMounted(async () => {
+  applyTheme(isLightMode.value);
   await checkAutostart();
   await refreshAll(true);
   schedulerTimer = setInterval(runSchedulerCycle, 60000);
@@ -950,7 +1013,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app-layout">
+  <div class="app-layout" :data-theme="isLightMode ? 'light' : 'dark'">
     <!-- Header -->
     <header class="app-header">
       <div class="brand">
@@ -1005,6 +1068,11 @@ onUnmounted(() => {
 
       <!-- Global Actions -->
       <div class="header-actions">
+        <button class="btn btn-secondary" @click="toggleTheme" :title="isLightMode ? '切換為深色主題' : '切換為淺色主題'">
+          <Sun v-if="isLightMode" class="btn-icon text-amber" />
+          <Moon v-else class="btn-icon" />
+        </button>
+
         <button class="btn btn-secondary" @click="refreshAll(false)" :disabled="isRefreshing" title="重新整理">
           <RefreshCw class="btn-icon" :class="{ 'spin-anim': isRefreshing }" />
         </button>
@@ -1965,7 +2033,7 @@ onUnmounted(() => {
         <div class="modal-header">
           <div class="modal-title">
             <Pencil class="modal-title-icon" />
-            <span>修改雲端設定: {{ editRemoteForm.name }}</span>
+            <span>修改雲端設定: {{ editRemoteForm.newName || editRemoteForm.name }}</span>
           </div>
           <button class="close-btn" @click="showEditRemoteModal = false">
             <X class="close-icon" />
@@ -1973,6 +2041,17 @@ onUnmounted(() => {
         </div>
 
         <div class="modal-body">
+          <div class="setting-group">
+            <label class="group-title">雲端硬碟名稱 (Remote Name)</label>
+            <input
+              type="text"
+              v-model="editRemoteForm.newName"
+              class="modal-input font-bold"
+              placeholder="例如：xVideo"
+            />
+            <span class="field-hint">可直接修改名稱，儲存後掛載代號與設定將自動平移。</span>
+          </div>
+
           <div class="setting-group">
             <label class="group-title">服務類型</label>
             <div class="text-cyan font-bold">{{ getProviderDetails(editRemoteForm.type).name }} ({{ editRemoteForm.type }})</div>
@@ -2157,6 +2236,22 @@ onUnmounted(() => {
                 class="toggle-switch"
                 :class="{ active: startMinimizedActive }"
                 @click="toggleStartMinimized"
+              >
+                <span class="toggle-slider"></span>
+              </button>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <div class="switch-row">
+              <div>
+                <div class="switch-title">淺色外觀主題 (Light Mode)</div>
+                <div class="group-desc">切換明亮淺色或深邃暗色介面外觀風格</div>
+              </div>
+              <button
+                class="toggle-switch"
+                :class="{ active: isLightMode }"
+                @click="toggleTheme"
               >
                 <span class="toggle-slider"></span>
               </button>
@@ -4246,5 +4341,331 @@ onUnmounted(() => {
 .cloud-dir-name {
   font-size: 12px;
   font-weight: 500;
+}
+
+/* ========================================================
+   LIGHT THEME OVERRIDES (淺色主題專屬樣式)
+   ======================================================== */
+.app-layout[data-theme="light"],
+:global([data-theme="light"]) .app-layout {
+  background: radial-gradient(circle at 10% 20%, #f8fafc 0%, #eef2f6 90%);
+}
+
+.app-layout[data-theme="light"] .app-header,
+:global([data-theme="light"]) .app-header {
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+}
+
+.app-layout[data-theme="light"] .brand-title,
+:global([data-theme="light"]) .brand-title {
+  background: linear-gradient(90deg, #0f172a, #334155);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.app-layout[data-theme="light"] .nav-tabs,
+:global([data-theme="light"]) .nav-tabs {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.app-layout[data-theme="light"] .tab-btn,
+:global([data-theme="light"]) .tab-btn {
+  color: #475569;
+}
+
+.app-layout[data-theme="light"] .tab-btn:hover,
+:global([data-theme="light"]) .tab-btn:hover {
+  color: #0f172a;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.app-layout[data-theme="light"] .tab-btn.active,
+:global([data-theme="light"]) .tab-btn.active {
+  color: #ffffff;
+  background: linear-gradient(135deg, #0284c7, #2563eb);
+}
+
+.app-layout[data-theme="light"] .env-banner,
+:global([data-theme="light"]) .env-banner {
+  background: rgba(255, 255, 255, 0.85);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.app-layout[data-theme="light"] .drive-card,
+:global([data-theme="light"]) .drive-card {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.09);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+.app-layout[data-theme="light"] .drive-card:hover,
+:global([data-theme="light"]) .drive-card:hover {
+  background: #ffffff;
+  border-color: rgba(2, 132, 199, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.app-layout[data-theme="light"] .card-header,
+:global([data-theme="light"]) .card-header {
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+
+.app-layout[data-theme="light"] .drive-select,
+.app-layout[data-theme="light"] .field-select,
+.app-layout[data-theme="light"] .field-input,
+.app-layout[data-theme="light"] .modal-input,
+.app-layout[data-theme="light"] .modal-input-compact,
+:global([data-theme="light"]) .drive-select,
+:global([data-theme="light"]) .field-select,
+:global([data-theme="light"]) .field-input,
+:global([data-theme="light"]) .modal-input,
+:global([data-theme="light"]) .modal-input-compact {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  color: #0f172a;
+}
+
+.app-layout[data-theme="light"] .drive-select:focus,
+.app-layout[data-theme="light"] .field-select:focus,
+.app-layout[data-theme="light"] .field-input:focus,
+.app-layout[data-theme="light"] .modal-input:focus,
+.app-layout[data-theme="light"] .modal-input-compact:focus,
+:global([data-theme="light"]) .drive-select:focus,
+:global([data-theme="light"]) .field-select:focus,
+:global([data-theme="light"]) .field-input:focus,
+:global([data-theme="light"]) .modal-input:focus,
+:global([data-theme="light"]) .modal-input-compact:focus {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
+}
+
+.app-layout[data-theme="light"] .drive-locked,
+:global([data-theme="light"]) .drive-locked {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #059669;
+}
+
+.app-layout[data-theme="light"] .modal-backdrop,
+:global([data-theme="light"]) .modal-backdrop {
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.app-layout[data-theme="light"] .modal-card,
+:global([data-theme="light"]) .modal-card {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.16);
+  color: #0f172a;
+}
+
+.app-layout[data-theme="light"] .modal-header,
+:global([data-theme="light"]) .modal-header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+.app-layout[data-theme="light"] .modal-footer,
+:global([data-theme="light"]) .modal-footer {
+  background: #f8fafc;
+  border-top: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+.app-layout[data-theme="light"] .btn-secondary,
+:global([data-theme="light"]) .btn-secondary {
+  background: #f1f5f9;
+  color: #1e293b;
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.app-layout[data-theme="light"] .btn-secondary:hover:not(:disabled),
+:global([data-theme="light"]) .btn-secondary:hover:not(:disabled) {
+  background: #e2e8f0;
+}
+
+.app-layout[data-theme="light"] .info-box,
+:global([data-theme="light"]) .info-box {
+  background: rgba(2, 132, 199, 0.06);
+  border-color: rgba(2, 132, 199, 0.2);
+}
+
+.app-layout[data-theme="light"] .toggle-switch,
+:global([data-theme="light"]) .toggle-switch {
+  background: #cbd5e1;
+}
+
+.app-layout[data-theme="light"] .toggle-switch.active,
+:global([data-theme="light"]) .toggle-switch.active {
+  background: #0284c7;
+}
+
+.app-layout[data-theme="light"] .status-unmounted,
+:global([data-theme="light"]) .status-unmounted {
+  background: rgba(0, 0, 0, 0.05);
+  color: #64748b;
+}
+
+.app-layout[data-theme="light"] .count-pill,
+:global([data-theme="light"]) .count-pill {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #475569;
+}
+
+.app-layout[data-theme="light"] .setup-options-row,
+:global([data-theme="light"]) .setup-options-row {
+  background: #f8fafc;
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.app-layout[data-theme="light"] .rcloneview-action-toolbar,
+:global([data-theme="light"]) .rcloneview-action-toolbar {
+  background: #f8fafc;
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.app-layout[data-theme="light"] .rv-toggle-btn,
+:global([data-theme="light"]) .rv-toggle-btn {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.app-layout[data-theme="light"] .rv-search-box,
+:global([data-theme="light"]) .rv-search-box {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+.app-layout[data-theme="light"] .rv-search-input,
+:global([data-theme="light"]) .rv-search-input {
+  color: #0f172a;
+}
+
+.app-layout[data-theme="light"] .rcloneview-table-container,
+:global([data-theme="light"]) .rcloneview-table-container {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.app-layout[data-theme="light"] .rv-thead-row,
+:global([data-theme="light"]) .rv-thead-row {
+  background: #f1f5f9;
+  border-bottom-color: rgba(0, 0, 0, 0.08);
+}
+
+.app-layout[data-theme="light"] .rv-thead-row th,
+:global([data-theme="light"]) .rv-thead-row th {
+  color: #475569;
+  border-right-color: rgba(0, 0, 0, 0.05);
+}
+
+.app-layout[data-theme="light"] .rv-row,
+:global([data-theme="light"]) .rv-row {
+  border-bottom-color: rgba(0, 0, 0, 0.05);
+}
+
+.app-layout[data-theme="light"] .rv-row:hover,
+:global([data-theme="light"]) .rv-row:hover {
+  background: rgba(2, 132, 199, 0.05);
+}
+
+.app-layout[data-theme="light"] .col-dir,
+:global([data-theme="light"]) .col-dir {
+  background: #f8fafc;
+  border-left-color: rgba(0, 0, 0, 0.08);
+  border-right-color: rgba(0, 0, 0, 0.08);
+}
+
+.app-layout[data-theme="light"] .entry-name,
+:global([data-theme="light"]) .entry-name {
+  color: #0f172a;
+}
+
+.app-layout[data-theme="light"] .rcloneview-statusbar,
+:global([data-theme="light"]) .rcloneview-statusbar {
+  background: #f8fafc;
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #64748b;
+}
+
+.app-layout[data-theme="light"] .task-log-details,
+:global([data-theme="light"]) .task-log-details {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.app-layout[data-theme="light"] .log-summary,
+:global([data-theme="light"]) .log-summary {
+  background: #f8fafc;
+  color: #1e293b;
+}
+
+.app-layout[data-theme="light"] .log-content-pre,
+:global([data-theme="light"]) .log-content-pre {
+  background: #f8fafc;
+  color: #334155;
+}
+
+.app-layout[data-theme="light"] .quick-filter-tag,
+:global([data-theme="light"]) .quick-filter-tag {
+  background: #f1f5f9;
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #475569;
+}
+
+.app-layout[data-theme="light"] .cloud-breadcrumb-bar,
+:global([data-theme="light"]) .cloud-breadcrumb-bar {
+  background: #f1f5f9;
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.app-layout[data-theme="light"] .cloud-dirs-container,
+:global([data-theme="light"]) .cloud-dirs-container {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.app-layout[data-theme="light"] .cloud-dir-item,
+:global([data-theme="light"]) .cloud-dir-item {
+  background: #f8fafc;
+  color: #1e293b;
+}
+
+.app-layout[data-theme="light"] .cloud-dir-item:hover,
+:global([data-theme="light"]) .cloud-dir-item:hover {
+  background: rgba(2, 132, 199, 0.08);
+  color: #0284c7;
+}
+
+.app-layout[data-theme="light"] .task-table,
+:global([data-theme="light"]) .task-table {
+  background: #ffffff;
+}
+
+.app-layout[data-theme="light"] .task-table th,
+:global([data-theme="light"]) .task-table th {
+  background: #f1f5f9;
+  color: #475569;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.app-layout[data-theme="light"] .task-table td,
+:global([data-theme="light"]) .task-table td {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.app-layout[data-theme="light"] .task-table-wrapper,
+:global([data-theme="light"]) .task-table-wrapper {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.app-layout[data-theme="light"] .toast-info,
+:global([data-theme="light"]) .toast-info {
+  background: rgba(255, 255, 255, 0.95);
+  color: #0f172a;
+  border-color: rgba(0, 0, 0, 0.12);
 }
 </style>

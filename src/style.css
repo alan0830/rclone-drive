@@ -33,6 +33,37 @@
   --shadow-glow: 0 0 20px -2px var(--accent-cyan-glow);
 }
 
+:root[data-theme="light"],
+[data-theme="light"] {
+  --bg-primary: #f8fafc;
+  --bg-secondary: #f1f5f9;
+  --bg-tertiary: #e2e8f0;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8fafc;
+  --bg-card-active: #f1f5f9;
+
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-focus: #0284c7;
+  --border-card: rgba(0, 0, 0, 0.09);
+
+  --text-main: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+
+  --accent-cyan: #0284c7;
+  --accent-cyan-glow: rgba(2, 132, 199, 0.2);
+  --accent-indigo: #4f46e5;
+  --accent-emerald: #059669;
+  --accent-emerald-glow: rgba(5, 150, 105, 0.2);
+  --accent-amber: #d97706;
+  --accent-rose: #e11d48;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 14px -2px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 30px -4px rgba(0, 0, 0, 0.12), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+  --shadow-glow: 0 0 20px -2px var(--accent-cyan-glow);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -63,6 +94,16 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 button {

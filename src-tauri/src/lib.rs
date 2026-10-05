@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::os::windows::process::CommandExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 use std::thread;
@@ -579,34 +579,145 @@ fn create_remote_gui(
     }
 }
 
-// GUI Remote Config Update
+fn get_rclone_conf_path(exe: &str) -> Option<PathBuf> {
+    let mut cmd = Command::new(exe);
+    cmd.args(["config", "file"]);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    if let Ok(output) = cmd.output() {
+        if output.status.success() {
+            let out_str = String::from_utf8_lossy(&output.stdout);
+            for line in out_str.lines() {
+                let trimmed = line.trim();
+                if trimmed.ends_with("rclone.conf") && Path::new(trimmed).exists() {
+                    return Some(PathBuf::from(trimmed));
+                }
+            }
+        }
+    }
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let p = PathBuf::from(appdata).join("rclone").join("rclone.conf");
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    if let Ok(userprofile) = std::env::var("USERPROFILE") {
+        let p = PathBuf::from(userprofile).join(".config").join("rclone").join("rclone.conf");
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+// GUI Remote Config Update & Optional Rename
 #[tauri::command]
 fn update_remote_gui(
+    state: State<'_, AppState>,
     rclone_path: Option<String>,
     name: String,
+    new_name: Option<String>,
     params: HashMap<String, String>,
 ) -> Result<String, String> {
     let exe = resolve_rclone_path(rclone_path);
-    let mut cmd = Command::new(&exe);
-    cmd.arg("config");
-    cmd.arg("update");
-    cmd.arg(&name);
+    let old_name = name.trim().to_string();
+    let target_name = new_name
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| old_name.clone());
 
-    for (k, v) in params {
-        if !v.trim().is_empty() {
-            cmd.arg(k);
-            cmd.arg(v);
+    // 1. If renaming remote
+    if !target_name.is_empty() && target_name != old_name {
+        if target_name.contains(':')
+            || target_name.contains('/')
+            || target_name.contains('\\')
+            || target_name.contains('[')
+            || target_name.contains(']')
+            || target_name.contains('"')
+            || target_name.contains('*')
+            || target_name.contains('?')
+            || target_name.contains('<')
+            || target_name.contains('>')
+            || target_name.contains('|')
+        {
+            return Err("雲端硬碟名稱不可包含特殊字元 (: / \\ [ ] * ? < > | \")".to_string());
+        }
+
+        let conf_path = get_rclone_conf_path(&exe).ok_or_else(|| "找不到 rclone.conf 設定檔路徑！".to_string())?;
+        let content = std::fs::read_to_string(&conf_path).map_err(|e| format!("無法讀取 rclone.conf: {}", e))?;
+
+        let old_header = format!("[{}]", old_name);
+        let new_header = format!("[{}]", target_name);
+
+        let mut found_old = false;
+        for line in content.lines() {
+            let t = line.trim();
+            if t.eq_ignore_ascii_case(&new_header) && !t.eq_ignore_ascii_case(&old_header) {
+                return Err(format!("雲端硬碟名稱 '{}' 已經存在，請更換其他名稱！", target_name));
+            }
+            if t.eq_ignore_ascii_case(&old_header) {
+                found_old = true;
+            }
+        }
+
+        if !found_old {
+            return Err(format!("找不到原設定名稱 '{}'", old_name));
+        }
+
+        let mut new_lines = Vec::new();
+        let mut replaced = false;
+        for line in content.lines() {
+            if !replaced && line.trim().eq_ignore_ascii_case(&old_header) {
+                new_lines.push(new_header.clone());
+                replaced = true;
+            } else {
+                new_lines.push(line.to_string());
+            }
+        }
+        let new_content = new_lines.join("\r\n") + "\r\n";
+        std::fs::write(&conf_path, new_content).map_err(|e| format!("寫入 rclone.conf 失敗: {}", e))?;
+
+        // Update active mounts tracking if currently mounted
+        {
+            let mut mounts = state.mounts.lock().unwrap();
+            if let Some(mut instance) = mounts.remove(&old_name) {
+                instance.remote = target_name.clone();
+                let drive = instance.drive_letter.clone();
+                let rtype = instance.remote_type.clone().unwrap_or_else(|| "default".to_string());
+                mounts.insert(target_name.clone(), instance);
+                set_windows_drive_icon(&drive, &rtype, Some(&target_name));
+            }
         }
     }
 
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    // 2. If additional parameters (url, user, pass, etc.) need to be updated
+    let active_name = if target_name != old_name { target_name.clone() } else { old_name.clone() };
+    let has_params = params.values().any(|v| !v.trim().is_empty());
+    if has_params {
+        let mut cmd = Command::new(&exe);
+        cmd.arg("config");
+        cmd.arg("update");
+        cmd.arg(&active_name);
 
-    let output = cmd.output().map_err(|e| format!("執行 rclone config update 失敗: {}", e))?;
-    if output.status.success() {
-        Ok(format!("成功更新遠端 '{}' 的設定！", name))
+        for (k, v) in params {
+            if !v.trim().is_empty() {
+                cmd.arg(k);
+                cmd.arg(v);
+            }
+        }
+
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let output = cmd.output().map_err(|e| format!("執行 rclone config update 失敗: {}", e))?;
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("更新失敗: {}", err));
+        }
+    }
+
+    if target_name != old_name {
+        Ok(format!("成功將雲端硬碟名稱更名為 '{}' 並儲存設定！", target_name))
     } else {
-        let err = String::from_utf8_lossy(&output.stderr);
-        Err(format!("更新失敗: {}", err))
+        Ok(format!("成功更新遠端 '{}' 的設定！", active_name))
     }
 }
 
