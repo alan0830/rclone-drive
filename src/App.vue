@@ -1515,7 +1515,12 @@ onUnmounted(() => {
           <span class="logo-pulse"></span>
         </div>
         <div>
-          <h1 class="brand-title">Rclone Drive & Sync</h1>
+          <div class="brand-title-row">
+            <h1 class="brand-title">Rclone Drive & Sync</h1>
+            <span class="app-version-badge" @click="checkForUpdates(true)" title="當前版本 v{{ CURRENT_VERSION }}（點擊檢查更新）">
+              v{{ CURRENT_VERSION }}
+            </span>
+          </div>
           <p class="brand-subtitle">雲端硬碟掛載 • 參數修改 • 差異比對 • 定時排程</p>
         </div>
       </div>
@@ -2602,6 +2607,28 @@ onUnmounted(() => {
       </section>
     </main>
 
+    <!-- App Status Bar / Footer -->
+    <footer class="app-statusbar">
+      <div class="statusbar-left">
+        <span class="statusbar-item">
+          <span class="status-dot" :class="envStatus.rclone_found ? 'dot-online' : 'dot-offline'"></span>
+          Rclone: {{ envStatus.rclone_version ? 'v' + envStatus.rclone_version : (envStatus.rclone_found ? '已就緒' : '未找到') }}
+        </span>
+        <span class="statusbar-item">
+          <span class="status-dot" :class="envStatus.winfsp_found ? 'dot-online' : 'dot-offline'"></span>
+          WinFsp: {{ envStatus.winfsp_found ? '已安裝' : '未安裝' }}
+        </span>
+        <span class="statusbar-item">
+          已掛載: {{ mountedCount }} / {{ totalCount }}
+        </span>
+      </div>
+      <div class="statusbar-right">
+        <span class="statusbar-item statusbar-version-btn" @click="checkForUpdates(true)" title="點擊手動檢查更新">
+          軟體版本: <strong>v{{ CURRENT_VERSION }}</strong>
+        </span>
+      </div>
+    </footer>
+
     <!-- MODAL: ADD REMOTE (GUI WIZARD) -->
     <div v-if="showAddRemoteModal" class="modal-backdrop" @click.self="showAddRemoteModal = false">
       <div class="modal-card">
@@ -3266,6 +3293,12 @@ onUnmounted(() => {
   border-radius: 50%;
 }
 
+.brand-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .brand-title {
   font-size: 18px;
   font-weight: 700;
@@ -3274,9 +3307,96 @@ onUnmounted(() => {
   -webkit-text-fill-color: transparent;
 }
 
+.app-version-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.app-version-badge:hover {
+  background: rgba(56, 189, 248, 0.25);
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
+  transform: translateY(-1px);
+}
+
+[data-theme="light"] .app-version-badge {
+  background: rgba(2, 132, 199, 0.12);
+  color: #0284c7;
+  border-color: rgba(2, 132, 199, 0.3);
+}
+
 .brand-subtitle {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* App Status Bar / Footer */
+.app-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 24px;
+  background: var(--bg-header);
+  border-top: 1px solid var(--border-subtle);
+  font-size: 11px;
+  color: var(--text-muted);
+  user-select: none;
+  z-index: 10;
+}
+
+.statusbar-left,
+.statusbar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.statusbar-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.statusbar-item strong {
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+[data-theme="light"] .statusbar-item strong {
+  color: #0284c7;
+}
+
+.statusbar-version-btn {
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.statusbar-version-btn:hover {
+  color: var(--text-main);
+  background: rgba(56, 189, 248, 0.1);
+}
+
+.dot-online {
+  background: #10b981 !important;
+  box-shadow: 0 0 6px #10b981;
+}
+
+.dot-offline {
+  background: #ef4444 !important;
 }
 
 /* Navigation Tabs */

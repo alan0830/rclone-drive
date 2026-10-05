@@ -28,6 +28,10 @@
 ### 3. 🔒 更新時的雙層安全卸載機制
 - 軟體更新時自動先執行 `unmount_all` 乾淨卸載所有雲端硬碟與釋放 Windows 網路句柄，避免安裝時出現檔案佔用提示。
 
+### 4. 🏷️ 主介面頂部版本標籤與底部系統狀態列
+- **頂部品牌版本標籤**：軟體左上角標題旁直接醒目顯示當前版號（如 `v1.5.4`），點擊可直接手動檢查 GitHub 最新版本。
+- **底部常駐狀態列 (Status Bar)**：新增底部資訊列，即時顯示 Rclone 核心版本、WinFsp 安裝狀態、目前掛載硬碟數量比例，以及軟體版本號。
+
 ---
 
 ## 🔒 檔案校驗雜湊值 (SHA-256 Checksums)
@@ -36,9 +40,9 @@
 
 | 檔案名稱 | SHA-256 雜湊值 |
 | :--- | :--- |
-| `RcloneDrive_v1.5.4_x64_Setup.exe` | `19c6b3151856e12dca3fd46e1427921f71d60dba8b99156b6b71419f3772793d` |
-| `RcloneDrive_v1.5.4_Portable_x64.exe` | `4ee538fb8123914d342087197c9e7d034147a5ab5a4827532e09c6ccb3b4a0a2` |
-| `RcloneDrive_v1.5.4_x64.msi` | `82b9d02b8b347fff82c4e54b8dcbe708d87f70a3a3a12e7b7f07bd9737b1e6cd` |
+| `RcloneDrive_v1.5.4_x64_Setup.exe` | `835c529ab0302c7a1ab21d9702b87993439e15b681857268c20968df054bfb95` |
+| `RcloneDrive_v1.5.4_Portable_x64.exe` | `4b0910ca2b8197f56cdf77b3280a45ae5e57a794223c68b38baeb58a2e66b421` |
+| `RcloneDrive_v1.5.4_x64.msi` | `7db0617c16fa5c26badc94567b47ffc6e36c33e356176231cddea257bde1303a` |
 
 ---
 
