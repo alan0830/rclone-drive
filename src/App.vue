@@ -191,7 +191,7 @@ const editTaskForm = reactive({
 let schedulerTimer = null;
 
 // GitHub Auto-Update State & Settings
-const CURRENT_VERSION = "1.5.5";
+const CURRENT_VERSION = "1.6.0";
 const GITHUB_REPO = "alan0830/rclone-drive";
 
 const savedUpdateSettings = JSON.parse(localStorage.getItem("rclone_update_settings") || "{}");
@@ -1662,7 +1662,7 @@ onUnmounted(() => {
     <div class="env-banner">
       <div class="env-item" :class="{ 'env-ok': envStatus.rclone_found, 'env-warn': !envStatus.rclone_found }">
         <component :is="envStatus.rclone_found ? CheckCircle2 : AlertTriangle" class="env-icon" />
-        <span v-if="envStatus.rclone_found">Rclone: {{ envStatus.rclone_version || '已連線' }}</span>
+        <span v-if="envStatus.rclone_found">Rclone: {{ envStatus.rclone_version ? (envStatus.rclone_version.toLowerCase().startsWith('rclone') ? envStatus.rclone_version.replace(/^rclone\s*/i, '') : envStatus.rclone_version) : '已連線' }}</span>
         <span v-else class="clickable-link" @click="handleAutoInstallRclone" title="點擊直接背景下載並自動配置 Rclone">
           Rclone: 尚未安裝 (⚡ 點此一鍵安裝)
         </span>
@@ -2607,28 +2607,6 @@ onUnmounted(() => {
       </section>
     </main>
 
-    <!-- App Status Bar / Footer -->
-    <footer class="app-statusbar">
-      <div class="statusbar-left">
-        <span class="statusbar-item">
-          <span class="status-dot" :class="envStatus.rclone_found ? 'dot-online' : 'dot-offline'"></span>
-          Rclone: {{ envStatus.rclone_version ? 'v' + envStatus.rclone_version : (envStatus.rclone_found ? '已就緒' : '未找到') }}
-        </span>
-        <span class="statusbar-item">
-          <span class="status-dot" :class="envStatus.winfsp_found ? 'dot-online' : 'dot-offline'"></span>
-          WinFsp: {{ envStatus.winfsp_found ? '已安裝' : '未安裝' }}
-        </span>
-        <span class="statusbar-item">
-          已掛載: {{ mountedCount }} / {{ totalCount }}
-        </span>
-      </div>
-      <div class="statusbar-right">
-        <span class="statusbar-item statusbar-version-btn" @click="checkForUpdates(true)" title="點擊手動檢查更新">
-          軟體版本: <strong>v{{ CURRENT_VERSION }}</strong>
-        </span>
-      </div>
-    </footer>
-
     <!-- MODAL: ADD REMOTE (GUI WIZARD) -->
     <div v-if="showAddRemoteModal" class="modal-backdrop" @click.self="showAddRemoteModal = false">
       <div class="modal-card">
@@ -3340,63 +3318,6 @@ onUnmounted(() => {
 .brand-subtitle {
   font-size: 11px;
   color: var(--text-muted);
-}
-
-/* App Status Bar / Footer */
-.app-statusbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 7px 24px;
-  background: var(--bg-header);
-  border-top: 1px solid var(--border-subtle);
-  font-size: 11px;
-  color: var(--text-muted);
-  user-select: none;
-  z-index: 10;
-}
-
-.statusbar-left,
-.statusbar-right {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.statusbar-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.statusbar-item strong {
-  color: var(--accent-cyan);
-  font-weight: 600;
-}
-
-[data-theme="light"] .statusbar-item strong {
-  color: #0284c7;
-}
-
-.statusbar-version-btn {
-  cursor: pointer;
-  padding: 2px 8px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-}
-
-.statusbar-version-btn:hover {
-  color: var(--text-main);
-  background: rgba(56, 189, 248, 0.1);
-}
-
-.dot-online {
-  background: #10b981 !important;
-  box-shadow: 0 0 6px #10b981;
-}
-
-.dot-offline {
-  background: #ef4444 !important;
 }
 
 /* Navigation Tabs */
