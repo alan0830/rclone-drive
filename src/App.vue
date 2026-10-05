@@ -44,7 +44,10 @@ import {
   SlidersHorizontal,
   Sun,
   Moon,
-  Zap
+  Zap,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from "lucide-vue-next";
 
 // Theme State (Dark / Light)
@@ -188,7 +191,7 @@ const editTaskForm = reactive({
 let schedulerTimer = null;
 
 // GitHub Auto-Update State & Settings
-const CURRENT_VERSION = "1.5.3";
+const CURRENT_VERSION = "1.5.4";
 const GITHUB_REPO = "alan0830/rclone-drive";
 
 const savedUpdateSettings = JSON.parse(localStorage.getItem("rclone_update_settings") || "{}");
@@ -408,6 +411,98 @@ async function toggleStartMinimized() {
   }
 }
 
+// ==========================================
+// Mounts List Sorting & Reordering State
+// ==========================================
+const mountSortBy = ref(localStorage.getItem("rclone_mount_sort_by") || "default");
+const customRemoteOrder = ref(JSON.parse(localStorage.getItem("rclone_mount_custom_order") || "[]"));
+
+function saveSortSettings() {
+  localStorage.setItem("rclone_mount_sort_by", mountSortBy.value);
+  localStorage.setItem("rclone_mount_custom_order", JSON.stringify(customRemoteOrder.value));
+}
+
+function onSortChange() {
+  if (mountSortBy.value === "custom" && (!customRemoteOrder.value || customRemoteOrder.value.length === 0)) {
+    customRemoteOrder.value = remotes.value.map((r) => r.name);
+  }
+  saveSortSettings();
+}
+
+function moveRemote(remoteName, direction) {
+  // If not already in custom mode, initialize custom order from current sorted list
+  if (mountSortBy.value !== "custom") {
+    customRemoteOrder.value = sortedRemotes.value.map((r) => r.name);
+    mountSortBy.value = "custom";
+    showToast("已自動切換至「自訂順序」模式", "info");
+  } else if (!customRemoteOrder.value || customRemoteOrder.value.length === 0) {
+    customRemoteOrder.value = remotes.value.map((r) => r.name);
+  }
+
+  // Ensure all current remotes exist in customRemoteOrder
+  for (const r of remotes.value) {
+    if (!customRemoteOrder.value.includes(r.name)) {
+      customRemoteOrder.value.push(r.name);
+    }
+  }
+
+  const currIdx = customRemoteOrder.value.indexOf(remoteName);
+  const targetIdx = currIdx + direction;
+  if (currIdx !== -1 && targetIdx >= 0 && targetIdx < customRemoteOrder.value.length) {
+    const item = customRemoteOrder.value.splice(currIdx, 1)[0];
+    customRemoteOrder.value.splice(targetIdx, 0, item);
+    saveSortSettings();
+  }
+}
+
+const sortedRemotes = computed(() => {
+  const list = [...remotes.value];
+  const sortBy = mountSortBy.value;
+
+  if (sortBy === "name-asc") {
+    return list.sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" }));
+  } else if (sortBy === "name-desc") {
+    return list.sort((a, b) => (b.name || "").localeCompare(a.name || "", undefined, { numeric: true, sensitivity: "base" }));
+  } else if (sortBy === "drive-asc") {
+    return list.sort((a, b) => {
+      const da = (a.is_mounted ? a.mounted_drive : remoteConfigs[a.name]?.driveLetter) || "Z:";
+      const db = (b.is_mounted ? b.mounted_drive : remoteConfigs[b.name]?.driveLetter) || "Z:";
+      return da.localeCompare(db) || (a.name || "").localeCompare(b.name || "");
+    });
+  } else if (sortBy === "drive-desc") {
+    return list.sort((a, b) => {
+      const da = (a.is_mounted ? a.mounted_drive : remoteConfigs[a.name]?.driveLetter) || "A:";
+      const db = (b.is_mounted ? b.mounted_drive : remoteConfigs[b.name]?.driveLetter) || "A:";
+      return db.localeCompare(da) || (a.name || "").localeCompare(b.name || "");
+    });
+  } else if (sortBy === "mounted-first") {
+    return list.sort((a, b) => {
+      const diff = (b.is_mounted ? 1 : 0) - (a.is_mounted ? 1 : 0);
+      return diff !== 0 ? diff : (a.name || "").localeCompare(b.name || "");
+    });
+  } else if (sortBy === "unmounted-first") {
+    return list.sort((a, b) => {
+      const diff = (a.is_mounted ? 1 : 0) - (b.is_mounted ? 1 : 0);
+      return diff !== 0 ? diff : (a.name || "").localeCompare(b.name || "");
+    });
+  } else if (sortBy === "type") {
+    return list.sort((a, b) => {
+      const diff = (a.remote_type || "").localeCompare(b.remote_type || "");
+      return diff !== 0 ? diff : (a.name || "").localeCompare(b.name || "");
+    });
+  } else if (sortBy === "custom") {
+    if (!customRemoteOrder.value || customRemoteOrder.value.length === 0) return list;
+    return list.sort((a, b) => {
+      let idxA = customRemoteOrder.value.indexOf(a.name);
+      let idxB = customRemoteOrder.value.indexOf(b.name);
+      if (idxA === -1) idxA = 9999;
+      if (idxB === -1) idxB = 9999;
+      return idxA - idxB;
+    });
+  }
+  return list;
+});
+
 // Refresh status and remotes
 async function refreshAll(isInitial = false) {
   isRefreshing.value = true;
@@ -462,7 +557,7 @@ async function refreshAll(isInitial = false) {
     saveRemoteConfigs();
 
     if (isInitial && autoMountList.value.length > 0) {
-      for (const r of remoteList) {
+      for (const r of sortedRemotes.value) {
         if (!r.is_mounted && autoMountList.value.includes(r.name)) {
           mountDrive(r.name, false);
         }
@@ -541,9 +636,9 @@ async function openExplorer(driveLetter) {
   }
 }
 
-// Mount All
+// Mount All (mounts unmounted drives in current sorted order)
 async function mountAll() {
-  const unmounted = remotes.value.filter((r) => !r.is_mounted);
+  const unmounted = sortedRemotes.value.filter((r) => !r.is_mounted);
   if (unmounted.length === 0) {
     showToast("所有雲端硬碟都已處於掛載狀態", "info");
     return;
@@ -701,6 +796,11 @@ async function submitEditRemote() {
         autoMountList.value[autoIdx] = trimmedNewName;
         localStorage.setItem("rclone_auto_mount_list", JSON.stringify(autoMountList.value));
       }
+      const customIdx = customRemoteOrder.value.indexOf(oldName);
+      if (customIdx !== -1) {
+        customRemoteOrder.value[customIdx] = trimmedNewName;
+        saveSortSettings();
+      }
       let changedTasks = false;
       for (const t of scheduledTasks.value) {
         if (t.source && t.source.startsWith(`${oldName}:`)) {
@@ -756,6 +856,10 @@ async function handleDeleteRemote(name) {
     if (remoteConfigs[name]) {
       delete remoteConfigs[name];
       saveRemoteConfigs();
+    }
+    if (customRemoteOrder.value.includes(name)) {
+      customRemoteOrder.value = customRemoteOrder.value.filter((n) => n !== name);
+      saveSortSettings();
     }
     showToast(`已成功刪除 ${name}`, "info");
     await refreshAll();
@@ -1596,6 +1700,23 @@ onUnmounted(() => {
             <p>已掛載為標準 Windows 網路磁碟機，支援隨選即用與在線讀寫，點選右上角 ✏️ 可直接修正設定與重新授權</p>
           </div>
           <div class="sub-actions">
+            <!-- Sort Controls -->
+            <div v-if="remotes.length > 0" class="sort-select-wrapper" title="雲端硬碟列表排序方式">
+              <ArrowUpDown class="sort-icon" />
+              <span class="sort-label">排序:</span>
+              <select v-model="mountSortBy" @change="onSortChange" class="sort-select">
+                <option value="default">預設配置</option>
+                <option value="custom">自訂順序 (支援上移/下移)</option>
+                <option value="name-asc">名稱 (A → Z)</option>
+                <option value="name-desc">名稱 (Z → A)</option>
+                <option value="drive-asc">磁碟代號 (A → Z)</option>
+                <option value="drive-desc">磁碟代號 (Z → A)</option>
+                <option value="mounted-first">掛載狀態 (已掛載優先)</option>
+                <option value="unmounted-first">掛載狀態 (未掛載優先)</option>
+                <option value="type">雲端類型 (服務商)</option>
+              </select>
+            </div>
+
             <button class="btn btn-primary" @click="showAddRemoteModal = true">
               <PlusCircle class="btn-icon" />
               <span>新增雲端硬碟</span>
@@ -1612,9 +1733,9 @@ onUnmounted(() => {
         </div>
 
         <!-- Cards Grid -->
-        <div v-if="remotes.length > 0" class="cards-grid">
+        <div v-if="sortedRemotes.length > 0" class="cards-grid">
           <div
-            v-for="remote in remotes"
+            v-for="(remote, index) in sortedRemotes"
             :key="remote.name"
             class="drive-card"
             :class="{ 'card-mounted': remote.is_mounted, 'card-loading': loadingRemotes.has(remote.name) }"
@@ -1637,22 +1758,43 @@ onUnmounted(() => {
                 {{ remote.is_mounted ? `已掛載 (${remote.mounted_drive})` : '未掛載' }}
               </div>
 
-              <!-- Edit & Delete Buttons -->
-              <div class="card-header-actions" v-if="!remote.is_mounted">
-                <button
-                  class="icon-btn-action"
-                  @click="openEditModal(remote)"
-                  title="修改此雲端硬碟設定"
-                >
-                  <Pencil class="action-icon" />
-                </button>
-                <button
-                  class="icon-btn-delete"
-                  @click="handleDeleteRemote(remote.name)"
-                  title="刪除此雲端設定"
-                >
-                  <Trash2 class="trash-icon" />
-                </button>
+              <!-- Reorder & Action Buttons -->
+              <div class="card-header-actions">
+                <div class="reorder-btns" title="調整卡片顯示順序 (點擊將自動切換為自訂排序)">
+                  <button
+                    class="icon-btn-action icon-btn-reorder"
+                    :disabled="index === 0"
+                    @click.stop="moveRemote(remote.name, -1)"
+                    title="向上移動"
+                  >
+                    <ArrowUp class="action-icon" />
+                  </button>
+                  <button
+                    class="icon-btn-action icon-btn-reorder"
+                    :disabled="index === sortedRemotes.length - 1"
+                    @click.stop="moveRemote(remote.name, 1)"
+                    title="向下移動"
+                  >
+                    <ArrowDown class="action-icon" />
+                  </button>
+                </div>
+
+                <template v-if="!remote.is_mounted">
+                  <button
+                    class="icon-btn-action"
+                    @click="openEditModal(remote)"
+                    title="修改此雲端硬碟設定"
+                  >
+                    <Pencil class="action-icon" />
+                  </button>
+                  <button
+                    class="icon-btn-delete"
+                    @click="handleDeleteRemote(remote.name)"
+                    title="刪除此雲端設定"
+                  >
+                    <Trash2 class="trash-icon" />
+                  </button>
+                </template>
               </div>
             </div>
 
@@ -3551,6 +3693,92 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+/* Sort & Reorder Controls */
+.sort-select-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  padding: 6px 12px;
+  border-radius: var(--radius-md, 8px);
+  color: var(--text-main);
+  transition: all 0.2s ease;
+}
+
+.sort-select-wrapper:hover,
+.sort-select-wrapper:focus-within {
+  border-color: var(--accent-cyan);
+}
+
+.sort-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--accent-cyan);
+  flex-shrink: 0;
+}
+
+.sort-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sort-select {
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  padding-right: 4px;
+}
+
+.sort-select option {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+
+[data-theme="light"] .sort-select option {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.reorder-btns {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-card);
+  border-radius: 6px;
+  padding: 1px;
+  margin-right: 2px;
+}
+
+[data-theme="light"] .reorder-btns {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.icon-btn-reorder {
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn-reorder:disabled {
+  opacity: 0.2;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.icon-btn-reorder:hover:not(:disabled) {
+  color: var(--accent-cyan);
+  background: rgba(56, 189, 248, 0.15);
 }
 
 .icon-btn-action,
