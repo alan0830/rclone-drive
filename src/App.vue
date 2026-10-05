@@ -64,6 +64,7 @@ const showSettings = ref(false);
 const showAddRemoteModal = ref(false);
 const showEditRemoteModal = ref(false);
 const autostartActive = ref(false);
+const startMinimizedActive = ref(true);
 const customRclonePath = ref(localStorage.getItem("rclone_custom_path") || "C:\\rclone\\rclone.exe");
 
 // Configuration map for remotes
@@ -179,12 +180,16 @@ function getProviderDetails(type = "") {
   return { name: type || "雲端儲存", color: "#38BDF8", bg: "rgba(56, 189, 248, 0.15)" };
 }
 
-// Autostart toggle
+// Autostart & Start Minimized
 async function checkAutostart() {
   try {
     autostartActive.value = await isEnabled();
+    const settings = await invoke("get_app_settings");
+    if (settings && typeof settings.start_minimized_to_tray === "boolean") {
+      startMinimizedActive.value = settings.start_minimized_to_tray;
+    }
   } catch (err) {
-    console.error("檢查開機自啟失敗:", err);
+    console.error("檢查開機自啟與偏好失敗:", err);
   }
 }
 
@@ -204,6 +209,25 @@ async function toggleAutostart() {
   }
 }
 
+async function toggleStartMinimized() {
+  try {
+    startMinimizedActive.value = !startMinimizedActive.value;
+    await invoke("save_app_settings", {
+      settings: {
+        start_minimized_to_tray: startMinimizedActive.value
+      }
+    });
+    showToast(
+      startMinimizedActive.value
+        ? "已啟用「開機啟動後縮小至系統匣」"
+        : "已停用「開機啟動後縮小至系統匣」（開機自啟時將直接顯示主視窗）",
+      "success"
+    );
+  } catch (err) {
+    showToast(`設定縮小至系統匣失敗: ${err}`, "error");
+  }
+}
+
 // Refresh status and remotes
 async function refreshAll(isInitial = false) {
   isRefreshing.value = true;
@@ -220,6 +244,12 @@ async function refreshAll(isInitial = false) {
       rclonePath: customRclonePath.value.trim() || null
     });
     remotes.value = remoteList;
+
+    try {
+      await invoke("apply_mounted_drive_icons", { remotes: remoteList });
+    } catch (e) {
+      console.warn("套用磁碟機圖示警告:", e);
+    }
 
     let driveIndex = 0;
     remoteList.forEach((r) => {
@@ -273,13 +303,17 @@ async function mountDrive(remoteName, notify = true) {
 
   loadingRemotes.add(remoteName);
   try {
+    const targetRemote = remotes.value.find((r) => r.name === remoteName);
+    const remoteType = targetRemote ? targetRemote.remote_type : null;
+
     await invoke("mount_remote", {
       rclonePath: customRclonePath.value.trim() || null,
       remote: remoteName,
       driveLetter: conf.driveLetter,
       volname: conf.volname || remoteName,
       cacheMode: conf.cacheMode || "full",
-      readOnly: conf.readOnly || false
+      readOnly: conf.readOnly || false,
+      remoteType: remoteType
     });
 
     if (notify) {
@@ -2100,13 +2134,29 @@ onUnmounted(() => {
           <div class="setting-group">
             <div class="switch-row">
               <div>
-                <div class="switch-title">開機自動啟動 (常駐於 System Tray)</div>
-                <div class="group-desc">登入 Windows 時自動在右下角系統匣常駐啟動</div>
+                <div class="switch-title">開機自動啟動</div>
+                <div class="group-desc">登入 Windows 時自動在後台啟動 Rclone Drive</div>
               </div>
               <button
                 class="toggle-switch"
                 :class="{ active: autostartActive }"
                 @click="toggleAutostart"
+              >
+                <span class="toggle-slider"></span>
+              </button>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <div class="switch-row">
+              <div>
+                <div class="switch-title">開機啟動後縮小至系統匣 (Tray)</div>
+                <div class="group-desc">開機自啟動時保持在右下角通知區常駐，不主動彈出視窗</div>
+              </div>
+              <button
+                class="toggle-switch"
+                :class="{ active: startMinimizedActive }"
+                @click="toggleStartMinimized"
               >
                 <span class="toggle-slider"></span>
               </button>

@@ -37,6 +37,228 @@ pub struct MountInstance {
     pub remote: String,
     pub drive_letter: String,
     pub pid: u32,
+    pub remote_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppSettings {
+    pub start_minimized_to_tray: bool,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            start_minimized_to_tray: true,
+        }
+    }
+}
+
+// Embedded Cloud Drive Icons
+const ICON_GDRIVE: &[u8] = include_bytes!("../icons/drive_icons/gdrive.ico");
+const ICON_DROPBOX: &[u8] = include_bytes!("../icons/drive_icons/dropbox.ico");
+const ICON_ONEDRIVE: &[u8] = include_bytes!("../icons/drive_icons/onedrive.ico");
+const ICON_WEBDAV: &[u8] = include_bytes!("../icons/drive_icons/webdav.ico");
+const ICON_MEGA: &[u8] = include_bytes!("../icons/drive_icons/mega.ico");
+const ICON_BOX: &[u8] = include_bytes!("../icons/drive_icons/box.ico");
+const ICON_PCLOUD: &[u8] = include_bytes!("../icons/drive_icons/pcloud.ico");
+const ICON_S3: &[u8] = include_bytes!("../icons/drive_icons/s3.ico");
+const ICON_FTP: &[u8] = include_bytes!("../icons/drive_icons/ftp.ico");
+const ICON_DEFAULT: &[u8] = include_bytes!("../icons/drive_icons/default_cloud.ico");
+
+#[link(name = "shell32")]
+extern "system" {
+    fn SHChangeNotify(
+        w_event_id: i32,
+        u_flags: u32,
+        dw_item_1: *const std::ffi::c_void,
+        dw_item_2: *const std::ffi::c_void,
+    );
+}
+
+pub fn refresh_shell_icons() {
+    unsafe {
+        // SHCNE_ASSOCCHANGED = 0x08000000, SHCNF_IDLIST = 0
+        SHChangeNotify(0x08000000, 0, std::ptr::null(), std::ptr::null());
+    }
+}
+
+fn dirs_fallback_local_appdata() -> std::path::PathBuf {
+    if let Ok(val) = std::env::var("LOCALAPPDATA") {
+        std::path::PathBuf::from(val)
+    } else if let Ok(val) = std::env::var("USERPROFILE") {
+        std::path::PathBuf::from(val).join("AppData").join("Local")
+    } else {
+        std::path::PathBuf::from(r"C:\ProgramData")
+    }
+}
+
+fn dirs_fallback_appdata() -> std::path::PathBuf {
+    if let Ok(val) = std::env::var("APPDATA") {
+        std::path::PathBuf::from(val)
+    } else if let Ok(val) = std::env::var("USERPROFILE") {
+        std::path::PathBuf::from(val).join("AppData").join("Roaming")
+    } else {
+        std::path::PathBuf::from(r"C:\ProgramData")
+    }
+}
+
+fn ensure_drive_icons() -> std::path::PathBuf {
+    let base_dir = dirs_fallback_local_appdata().join("RcloneDrive").join("icons");
+    let _ = std::fs::create_dir_all(&base_dir);
+
+    let icons: [(&str, &[u8]); 10] = [
+        ("gdrive.ico", ICON_GDRIVE),
+        ("dropbox.ico", ICON_DROPBOX),
+        ("onedrive.ico", ICON_ONEDRIVE),
+        ("webdav.ico", ICON_WEBDAV),
+        ("mega.ico", ICON_MEGA),
+        ("box.ico", ICON_BOX),
+        ("pcloud.ico", ICON_PCLOUD),
+        ("s3.ico", ICON_S3),
+        ("ftp.ico", ICON_FTP),
+        ("default_cloud.ico", ICON_DEFAULT),
+    ];
+    for (filename, data) in icons {
+        let p = base_dir.join(filename);
+        if !p.exists() || std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0) != data.len() as u64 {
+            let _ = std::fs::write(&p, data);
+        }
+    }
+    base_dir
+}
+
+fn get_icon_filename_for_type(remote_type: &str) -> &'static str {
+    let t = remote_type.to_lowercase();
+    if t.contains("drive") || t == "gdrive" {
+        "gdrive.ico"
+    } else if t.contains("dropbox") {
+        "dropbox.ico"
+    } else if t.contains("onedrive") {
+        "onedrive.ico"
+    } else if t.contains("webdav") || t.contains("nextcloud") || t.contains("owncloud") {
+        "webdav.ico"
+    } else if t.contains("mega") {
+        "mega.ico"
+    } else if t.contains("box") {
+        "box.ico"
+    } else if t.contains("pcloud") {
+        "pcloud.ico"
+    } else if t.contains("s3") {
+        "s3.ico"
+    } else if t.contains("ftp") || t.contains("sftp") {
+        "ftp.ico"
+    } else {
+        "default_cloud.ico"
+    }
+}
+
+pub fn set_windows_drive_icon(drive_letter: &str, remote_type: &str, volname: Option<&str>) {
+    let clean_letter = drive_letter.trim().trim_end_matches(':').trim_end_matches('\\').to_uppercase();
+    if clean_letter.is_empty() {
+        return;
+    }
+    let icons_dir = ensure_drive_icons();
+    let icon_file = get_icon_filename_for_type(remote_type);
+    let ico_path = icons_dir.join(icon_file).to_string_lossy().to_string();
+
+    // 1. HKCU\Software\Classes\Applications\Explorer.exe\Drives\<Letter>\DefaultIcon
+    let key1 = format!(r"HKCU\Software\Classes\Applications\Explorer.exe\Drives\{}\DefaultIcon", clean_letter);
+    let mut cmd1 = Command::new("reg");
+    cmd1.args(["add", &key1, "/ve", "/d", &ico_path, "/f"]);
+    cmd1.creation_flags(CREATE_NO_WINDOW);
+    let _ = cmd1.output();
+
+    // 2. HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\DriveIcons\<Letter>\DefaultIcon
+    let key2 = format!(r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\DriveIcons\{}\DefaultIcon", clean_letter);
+    let mut cmd2 = Command::new("reg");
+    cmd2.args(["add", &key2, "/ve", "/d", &ico_path, "/f"]);
+    cmd2.creation_flags(CREATE_NO_WINDOW);
+    let _ = cmd2.output();
+
+    // 3. HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\MountPoints2\##server#<volname>\_Autorun\DefaultIcon
+    if let Some(vn) = volname {
+        let key3 = format!(r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\MountPoints2\##server#{}\_Autorun\DefaultIcon", vn);
+        let mut cmd3 = Command::new("reg");
+        cmd3.args(["add", &key3, "/ve", "/d", &ico_path, "/f"]);
+        cmd3.creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd3.output();
+    }
+
+    refresh_shell_icons();
+}
+
+pub fn remove_windows_drive_icon(drive_letter: &str, volname: Option<&str>) {
+    let clean_letter = drive_letter.trim().trim_end_matches(':').trim_end_matches('\\').to_uppercase();
+    if clean_letter.is_empty() {
+        return;
+    }
+
+    let key1 = format!(r"HKCU\Software\Classes\Applications\Explorer.exe\Drives\{}", clean_letter);
+    let mut cmd1 = Command::new("reg");
+    cmd1.args(["delete", &key1, "/f"]);
+    cmd1.creation_flags(CREATE_NO_WINDOW);
+    let _ = cmd1.output();
+
+    let key2 = format!(r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\DriveIcons\{}", clean_letter);
+    let mut cmd2 = Command::new("reg");
+    cmd2.args(["delete", &key2, "/f"]);
+    cmd2.creation_flags(CREATE_NO_WINDOW);
+    let _ = cmd2.output();
+
+    if let Some(vn) = volname {
+        let key3 = format!(r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\MountPoints2\##server#{}\_Autorun", vn);
+        let mut cmd3 = Command::new("reg");
+        cmd3.args(["delete", &key3, "/f"]);
+        cmd3.creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd3.output();
+    }
+
+    refresh_shell_icons();
+}
+
+fn get_settings_file_path() -> std::path::PathBuf {
+    let dir = dirs_fallback_appdata().join("com.rclonedrive.desktop");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("settings.json")
+}
+
+fn load_app_settings() -> AppSettings {
+    let p = get_settings_file_path();
+    if let Ok(data) = std::fs::read_to_string(&p) {
+        if let Ok(settings) = serde_json::from_str::<AppSettings>(&data) {
+            return settings;
+        }
+    }
+    AppSettings::default()
+}
+
+fn save_app_settings_to_file(settings: &AppSettings) -> Result<(), String> {
+    let p = get_settings_file_path();
+    let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
+    std::fs::write(&p, json).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_app_settings() -> Result<AppSettings, String> {
+    Ok(load_app_settings())
+}
+
+#[tauri::command]
+fn save_app_settings(settings: AppSettings) -> Result<(), String> {
+    save_app_settings_to_file(&settings)
+}
+
+#[tauri::command]
+fn apply_mounted_drive_icons(remotes: Vec<RemoteInfo>) -> Result<(), String> {
+    for r in remotes {
+        if r.is_mounted {
+            if let Some(drive) = r.mounted_drive {
+                set_windows_drive_icon(&drive, &r.remote_type, Some(&r.name));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -195,6 +417,7 @@ fn mount_remote(
     volname: Option<String>,
     cache_mode: Option<String>,
     read_only: Option<bool>,
+    remote_type: Option<String>,
 ) -> Result<MountInstance, String> {
     let exe = resolve_rclone_path(rclone_path);
 
@@ -205,10 +428,10 @@ fn mount_remote(
         }
     }
 
-    let clean_letter = drive_letter.trim().to_uppercase();
-    let root_path = format!("{clean_letter}\\");
+    let clean_letter = drive_letter.trim().trim_end_matches(':').trim_end_matches('\\').to_uppercase();
+    let root_path = format!("{clean_letter}:\\");
     if Path::new(&root_path).exists() {
-        return Err(format!("磁碟機代號 {} 已被本機其他裝置佔用！", clean_letter));
+        return Err(format!("磁碟機代號 {clean_letter}: 已被本機其他裝置佔用！"));
     }
 
     let v_name = volname.unwrap_or_else(|| remote.clone());
@@ -217,7 +440,7 @@ fn mount_remote(
     let mut cmd = Command::new(&exe);
     cmd.arg("mount");
     cmd.arg(format!("{}:", remote));
-    cmd.arg(&clean_letter);
+    cmd.arg(format!("{}:", clean_letter));
     cmd.arg("--vfs-cache-mode");
     cmd.arg(&c_mode);
     cmd.arg("--volname");
@@ -255,13 +478,18 @@ fn mount_remote(
         kill_cmd.args(["/F", "/PID", &pid.to_string(), "/T"]);
         kill_cmd.creation_flags(CREATE_NO_WINDOW);
         let _ = kill_cmd.output();
-        return Err(format!("掛載逾時，磁碟機 {} 未能及時就緒。請確認 WinFsp 正常運行。", clean_letter));
+        return Err(format!("掛載逾時，磁碟機 {clean_letter}: 未能及時就緒。請確認 WinFsp 正常運行。"));
     }
+
+    // Set Windows drive icon in Explorer
+    let r_type = remote_type.clone().unwrap_or_else(|| "default".to_string());
+    set_windows_drive_icon(&clean_letter, &r_type, Some(&v_name));
 
     let instance = MountInstance {
         remote: remote.clone(),
         drive_letter: clean_letter,
         pid,
+        remote_type,
     };
 
     let mut mounts = state.mounts.lock().unwrap();
@@ -274,12 +502,14 @@ fn mount_remote(
 fn unmount_remote(state: State<'_, AppState>, remote: String) -> Result<bool, String> {
     let mut mounts = state.mounts.lock().unwrap();
     if let Some(instance) = mounts.remove(&remote) {
+        remove_windows_drive_icon(&instance.drive_letter, Some(&remote));
+
         let mut kill_cmd = Command::new("taskkill");
         kill_cmd.args(["/F", "/PID", &instance.pid.to_string(), "/T"]);
         kill_cmd.creation_flags(CREATE_NO_WINDOW);
         let _ = kill_cmd.output();
 
-        let root_path = format!("{}\\", instance.drive_letter);
+        let root_path = format!("{}:\\", instance.drive_letter);
         for _ in 0..10 {
             if !Path::new(&root_path).exists() {
                 break;
@@ -305,12 +535,14 @@ fn open_in_explorer(drive_letter: String) -> Result<(), String> {
 fn unmount_all(state: State<'_, AppState>) -> Result<usize, String> {
     let mut mounts = state.mounts.lock().unwrap();
     let count = mounts.len();
-    for (_, instance) in mounts.drain() {
+    for (rem, instance) in mounts.drain() {
+        remove_windows_drive_icon(&instance.drive_letter, Some(&rem));
         let mut kill_cmd = Command::new("taskkill");
         kill_cmd.args(["/F", "/PID", &instance.pid.to_string(), "/T"]);
         kill_cmd.creation_flags(CREATE_NO_WINDOW);
         let _ = kill_cmd.output();
     }
+    refresh_shell_icons();
     Ok(count)
 }
 
@@ -840,6 +1072,15 @@ pub fn run() {
             Some(vec!["--minimized"]),
         ))
         .setup(|app| {
+            let args: Vec<String> = std::env::args().collect();
+            let is_minimized_arg = args.iter().any(|a| a == "--minimized" || a == "-m");
+            let settings = load_app_settings();
+
+            let should_minimize = is_minimized_arg && settings.start_minimized_to_tray;
+
+            // Ensure drive icons directory exists
+            let _ = ensure_drive_icons();
+
             let quit_i = MenuItemBuilder::with_id("quit", "結束 (Quit)").build(app)?;
             let show_i = MenuItemBuilder::with_id("show", "開啟儀表板 (Show Dashboard)").build(app)?;
             let webgui_i = MenuItemBuilder::with_id("webgui", "開啟 Rclone Web-GUI (瀏覽器)").build(app)?;
@@ -894,6 +1135,13 @@ pub fn run() {
                         let _ = win_clone.hide();
                     }
                 });
+
+                if should_minimize {
+                    let _ = win.hide();
+                } else {
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
             }
 
             Ok(())
@@ -918,6 +1166,9 @@ pub fn run() {
             select_local_folder,
             list_remote_dirs,
             copy_specific_files,
+            get_app_settings,
+            save_app_settings,
+            apply_mounted_drive_icons,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
