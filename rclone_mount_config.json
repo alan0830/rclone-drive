@@ -1,0 +1,47 @@
+{
+  "_comment": "Rclone Drive 掛載效能最佳化配置設定檔 (放於此目錄或 %APPDATA%\\com.rclonedrive.desktop\\)",
+  
+  "preset": "fast",
+  "_preset_comment": "可選 'fast' (極速推薦)、'default' (官方平衡) 或 'custom' (自訂)",
+
+  "dirCacheTime": "72h",
+  "_dirCacheTime_comment": "長效目錄快取時間 (--dir-cache-time)。推薦 72h 或 24h，大幅減少目錄樹反覆走訪造成的延遲卡頓",
+
+  "pollInterval": "1m",
+  "_pollInterval_comment": "遠端檔案變更輪詢頻率 (--poll-interval)。在支援的雲端 (如 Google Drive) 背景監聽雲端變更",
+
+  "attrTimeout": "10m",
+  "_attrTimeout_comment": "檔案與目錄核心屬性快取超時 (--attr-timeout)。推薦 10m，解決 Windows 檔案總管密集查詢屬性時的白屏/凍結",
+
+  "noModtime": true,
+  "_noModtime_comment": "抑制修改時間頻繁查詢 (--no-modtime)。為 true 時不主動重複讀取 mtime，針對大量小檔案目錄效果顯著",
+
+  "vfsCacheMode": "full",
+  "_vfsCacheMode_comment": "VFS 快取模式 (--vfs-cache-mode)。可選 'off' / 'minimal' / 'writes' / 'full'。推薦 'full' 獲取完整隨機讀寫與 Office 軟體相容性",
+
+  "vfsCacheMaxSize": "50G",
+  "_vfsCacheMaxSize_comment": "本機磁碟快取空間上限 (--vfs-cache-max-size)。例如 '50G'、'20G' 或 'off' (無上限)",
+
+  "vfsCacheMaxAge": "24h",
+  "_vfsCacheMaxAge_comment": "快取檔案保留時間上限 (--vfs-cache-max-age)。例如 '24h'、'48h' 或 '7d'",
+
+  "vfsReadChunkSize": "64M",
+  "_vfsReadChunkSize_comment": "漸進式切片讀取起始大小 (--vfs-read-chunk-size)。推薦 64M，兼顧點擊秒開與大檔串流吞吐",
+
+  "vfsReadChunkSizeLimit": "1G",
+  "_vfsReadChunkSizeLimit_comment": "切片翻倍上限 (--vfs-read-chunk-size-limit)。推薦 1G 或 'off' (無上限)",
+
+  "enableDrivePacer": true,
+  "_enableDrivePacer_comment": "是否對 Google Drive 啟用低延遲 Pacer 調校",
+
+  "drivePacerMinSleep": "10ms",
+  "_drivePacerMinSleep_comment": "Google Drive API 呼叫最小等待間隔 (--drive-pacer-min-sleep)。預設 100ms，調降至 10ms 大幅解除節流限制",
+
+  "drivePacerBurst": 200,
+  "_drivePacerBurst_comment": "Google Drive API 免等待突發連發量 (--drive-pacer-burst)。預設 100，提升至 200",
+
+  "warmUp": true,
+  "_warmUp_comment": "掛載後是否自動在後台透過 RC API 非阻塞執行 'vfs/refresh recursive=true' 預先加載整個目錄樹",
+
+  "extraFlags": ""
+}

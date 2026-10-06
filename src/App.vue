@@ -53,7 +53,10 @@ import {
   Terminal,
   HelpCircle,
   Server,
-  Database
+  Database,
+  ChevronDown,
+  Gauge,
+  Flame
 } from "lucide-vue-next";
 
 // Theme State (Dark / Light)
@@ -103,6 +106,96 @@ const remoteConfigs = reactive(savedRemoteConfigs);
 
 function saveRemoteConfigs() {
   localStorage.setItem("rclone_remote_configs", JSON.stringify(remoteConfigs));
+}
+
+// Mount Preset & Performance Tuning Options
+const expandedAdvancedOpts = reactive({});
+const globalMountPreset = ref(localStorage.getItem("rclone_global_mount_preset") || "fast");
+
+function saveGlobalMountPreset(preset) {
+  globalMountPreset.value = preset;
+  localStorage.setItem("rclone_global_mount_preset", preset);
+  showToast(`已更新全域預設掛載策略為: ${preset === 'fast' ? '⚡ 極速推薦' : preset === 'default' ? '⚖️ 官方預設' : '🛠️ 自訂進階'}`, "info");
+}
+
+function toggleAdvancedOpts(name) {
+  expandedAdvancedOpts[name] = !expandedAdvancedOpts[name];
+}
+
+function getDefaultMountOptions(preset = "fast") {
+  if (preset === "default") {
+    return {
+      preset: "default",
+      dirCacheTime: "5m",
+      pollInterval: "1m",
+      attrTimeout: "1s",
+      noModtime: false,
+      vfsCacheMode: "full",
+      vfsCacheMaxSize: "off",
+      vfsCacheMaxAge: "1h",
+      vfsReadChunkSize: "128M",
+      vfsReadChunkSizeLimit: "off",
+      drivePacerMinSleep: "100ms",
+      drivePacerBurst: 100,
+      enableDrivePacer: false,
+      warmUp: false,
+      extraFlags: ""
+    };
+  }
+  // Fast (預設推薦最佳化)
+  return {
+    preset: "fast",
+    dirCacheTime: "72h",
+    pollInterval: "1m",
+    attrTimeout: "10m",
+    noModtime: true,
+    vfsCacheMode: "full",
+    vfsCacheMaxSize: "50G",
+    vfsCacheMaxAge: "24h",
+    vfsReadChunkSize: "64M",
+    vfsReadChunkSizeLimit: "1G",
+    drivePacerMinSleep: "10ms",
+    drivePacerBurst: 200,
+    enableDrivePacer: true,
+    warmUp: true,
+    extraFlags: ""
+  };
+}
+
+function ensureRemoteMountOptions(remoteName) {
+  if (!remoteConfigs[remoteName]) return;
+  if (!remoteConfigs[remoteName].mountPreset) {
+    remoteConfigs[remoteName].mountPreset = globalMountPreset.value || "fast";
+  }
+  if (!remoteConfigs[remoteName].mountOptions) {
+    remoteConfigs[remoteName].mountOptions = getDefaultMountOptions(remoteConfigs[remoteName].mountPreset);
+  }
+}
+
+function applyPresetToRemote(remoteName, preset) {
+  if (!remoteConfigs[remoteName]) return;
+  remoteConfigs[remoteName].mountPreset = preset;
+  if (preset !== "custom") {
+    remoteConfigs[remoteName].mountOptions = getDefaultMountOptions(preset);
+    if (remoteConfigs[remoteName].mountOptions.vfsCacheMode) {
+      remoteConfigs[remoteName].cacheMode = remoteConfigs[remoteName].mountOptions.vfsCacheMode;
+    }
+  } else {
+    if (!remoteConfigs[remoteName].mountOptions) {
+      remoteConfigs[remoteName].mountOptions = getDefaultMountOptions("fast");
+    }
+    remoteConfigs[remoteName].mountOptions.preset = "custom";
+  }
+  saveRemoteConfigs();
+}
+
+function onCustomMountOptionChange(remoteName) {
+  if (!remoteConfigs[remoteName]) return;
+  remoteConfigs[remoteName].mountPreset = "custom";
+  if (remoteConfigs[remoteName].mountOptions?.vfsCacheMode) {
+    remoteConfigs[remoteName].cacheMode = remoteConfigs[remoteName].mountOptions.vfsCacheMode;
+  }
+  saveRemoteConfigs();
 }
 
 const loadingRemotes = reactive(new Set());
@@ -345,7 +438,7 @@ const editTaskForm = reactive({
 let schedulerTimer = null;
 
 // GitHub Auto-Update State & Settings
-const CURRENT_VERSION = "1.6.1";
+const CURRENT_VERSION = "1.6.2";
 const GITHUB_REPO = "alan0830/rclone-drive";
 
 const savedUpdateSettings = JSON.parse(localStorage.getItem("rclone_update_settings") || "{}");
@@ -705,12 +798,15 @@ async function refreshAll(isInitial = false) {
           "Z:";
         driveIndex++;
 
+        const defPreset = globalMountPreset.value || "fast";
         remoteConfigs[r.name] = {
           driveLetter: r.mounted_drive || assigned,
           volname: r.name,
           cacheMode: "full",
           readOnly: false,
-          autoMount: autoMountList.value.includes(r.name)
+          autoMount: autoMountList.value.includes(r.name),
+          mountPreset: defPreset,
+          mountOptions: getDefaultMountOptions(defPreset)
         };
       } else {
         // 已有儲存的使用者自訂設定，絕對保留使用者的 driveLetter！
@@ -718,6 +814,7 @@ async function refreshAll(isInitial = false) {
           remoteConfigs[r.name].driveLetter = r.mounted_drive;
         }
         remoteConfigs[r.name].autoMount = autoMountList.value.includes(r.name);
+        ensureRemoteMountOptions(r.name);
       }
     });
     saveRemoteConfigs();
@@ -747,6 +844,7 @@ async function mountDrive(remoteName, notify = true) {
     return;
   }
 
+  ensureRemoteMountOptions(remoteName);
   const conf = remoteConfigs[remoteName];
   if (!conf || !conf.driveLetter) {
     showToast("請先選擇磁碟機代號！", "error");
@@ -758,6 +856,14 @@ async function mountDrive(remoteName, notify = true) {
     const targetRemote = remotes.value.find((r) => r.name === remoteName);
     const remoteType = targetRemote ? targetRemote.remote_type : null;
 
+    const currentPreset = conf.mountPreset || "fast";
+    const baseOpts = conf.mountOptions || getDefaultMountOptions(currentPreset);
+    const activeOpts = {
+      ...baseOpts,
+      preset: currentPreset,
+      vfsCacheMode: conf.cacheMode || baseOpts.vfsCacheMode || "full"
+    };
+
     await invoke("mount_remote", {
       rclonePath: customRclonePath.value.trim() || null,
       remote: remoteName,
@@ -765,7 +871,8 @@ async function mountDrive(remoteName, notify = true) {
       volname: conf.volname || remoteName,
       cacheMode: conf.cacheMode || "full",
       readOnly: conf.readOnly || false,
-      remoteType: remoteType
+      remoteType: remoteType,
+      mountOptions: activeOpts
     });
 
     if (notify) {
@@ -2102,6 +2209,261 @@ onUnmounted(() => {
                   <option value="minimal">Minimal (最低快取)</option>
                   <option value="off">關閉 (唯讀或純串流)</option>
                 </select>
+              </div>
+
+              <!-- Performance Preset Selector -->
+              <div class="setting-row" v-if="!remote.is_mounted">
+                <div class="perf-preset-header">
+                  <label class="field-label">
+                    <span>效能預設集 (Preset)</span>
+                  </label>
+                  <button
+                    type="button"
+                    class="btn-toggle-adv"
+                    :class="{ active: expandedAdvancedOpts[remote.name] }"
+                    @click="toggleAdvancedOpts(remote.name)"
+                    title="展開/收合效能微調選項"
+                  >
+                    <SlidersHorizontal class="btn-adv-icon" />
+                    <span>{{ expandedAdvancedOpts[remote.name] ? '收合微調' : '微調參數' }}</span>
+                    <ChevronDown class="btn-chevron-icon" :class="{ rotated: expandedAdvancedOpts[remote.name] }" />
+                  </button>
+                </div>
+                <div class="preset-pill-group">
+                  <button
+                    type="button"
+                    class="preset-pill"
+                    :class="{ active: (remoteConfigs[remote.name]?.mountPreset || 'fast') === 'fast' }"
+                    @click="applyPresetToRemote(remote.name, 'fast')"
+                  >
+                    <Zap class="pill-icon" />
+                    <span>極速推薦</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="preset-pill"
+                    :class="{ active: remoteConfigs[remote.name]?.mountPreset === 'default' }"
+                    @click="applyPresetToRemote(remote.name, 'default')"
+                  >
+                    <Gauge class="pill-icon" />
+                    <span>官方平衡</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="preset-pill"
+                    :class="{ active: remoteConfigs[remote.name]?.mountPreset === 'custom' }"
+                    @click="applyPresetToRemote(remote.name, 'custom')"
+                  >
+                    <Sliders class="pill-icon" />
+                    <span>自訂進階</span>
+                  </button>
+                </div>
+
+                <div class="preset-hint-box" v-if="!expandedAdvancedOpts[remote.name]">
+                  <p v-if="(remoteConfigs[remote.name]?.mountPreset || 'fast') === 'fast'" class="hint-fast">
+                    ⚡ <b>極速推薦</b>：72h 長效目錄快取、10m 屬性快取、抑制 modtime 查詢、50G 磁碟快取與非阻塞背景預熱，秒開零凍結！
+                  </p>
+                  <p v-else-if="remoteConfigs[remote.name]?.mountPreset === 'default'" class="hint-default">
+                    ⚖️ <b>官方平衡</b>：Rclone 原廠預設行為 (5m 目錄快取、1s 屬性超時、關閉背景預熱)。
+                  </p>
+                  <p v-else class="hint-custom">
+                    🛠️ <b>自訂微調</b>：已套用個別自訂快取超時、切片大小或節流設定。
+                  </p>
+                </div>
+              </div>
+
+              <!-- Expanded Advanced Performance Options -->
+              <div
+                class="advanced-opts-panel"
+                v-if="!remote.is_mounted && expandedAdvancedOpts[remote.name] && remoteConfigs[remote.name]?.mountOptions"
+              >
+                <div class="adv-panel-title">
+                  <SlidersHorizontal class="panel-title-icon" />
+                  <span>目錄、磁碟快取與 Google Drive 節流微調</span>
+                </div>
+
+                <!-- 1. 目錄與屬性快取 -->
+                <div class="adv-section-title">1. 目錄與屬性快取（解決目錄瀏覽卡頓）</div>
+                <div class="adv-grid">
+                  <div class="adv-field">
+                    <label class="adv-label" title="--dir-cache-time">長效目錄快取</label>
+                    <select
+                      v-model="remoteConfigs[remote.name].mountOptions.dirCacheTime"
+                      @change="onCustomMountOptionChange(remote.name)"
+                      class="adv-select"
+                    >
+                      <option value="72h">72 小時 (推薦, 秒開目錄)</option>
+                      <option value="24h">24 小時</option>
+                      <option value="7d">7 天 (極速靜態)</option>
+                      <option value="1h">1 小時</option>
+                      <option value="5m">5 分鐘 (Rclone 預設)</option>
+                    </select>
+                  </div>
+
+                  <div class="adv-field">
+                    <label class="adv-label" title="--poll-interval">遠端變更輪詢</label>
+                    <select
+                      v-model="remoteConfigs[remote.name].mountOptions.pollInterval"
+                      @change="onCustomMountOptionChange(remote.name)"
+                      class="adv-select"
+                    >
+                      <option value="1m">1 分鐘 (推薦)</option>
+                      <option value="30s">30 秒 (高頻同步)</option>
+                      <option value="5m">5 分鐘</option>
+                      <option value="0">0 (停用輪詢)</option>
+                    </select>
+                  </div>
+
+                  <div class="adv-field">
+                    <label class="adv-label" title="--attr-timeout">核心屬性快取超時</label>
+                    <select
+                      v-model="remoteConfigs[remote.name].mountOptions.attrTimeout"
+                      @change="onCustomMountOptionChange(remote.name)"
+                      class="adv-select"
+                    >
+                      <option value="10m">10 分鐘 (推薦, 防檔案總管假死)</option>
+                      <option value="5m">5 分鐘</option>
+                      <option value="1h">1 小時</option>
+                      <option value="1s">1 秒 (Rclone 預設)</option>
+                    </select>
+                  </div>
+
+                  <div class="adv-field-toggle">
+                    <div class="toggle-info">
+                      <span class="adv-toggle-label" title="--no-modtime">抑制修改時間頻繁查詢 (--no-modtime)</span>
+                      <span class="adv-toggle-desc">避免檔案總管列舉時逐一讀取遠端 mtime，極大加速小檔案目錄載入</span>
+                    </div>
+                    <button
+                      type="button"
+                      class="toggle-switch-sm"
+                      :class="{ active: remoteConfigs[remote.name].mountOptions.noModtime }"
+                      @click="remoteConfigs[remote.name].mountOptions.noModtime = !remoteConfigs[remote.name].mountOptions.noModtime; onCustomMountOptionChange(remote.name)"
+                    >
+                      <span class="toggle-slider-sm"></span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 2. VFS 磁碟快取與切片 -->
+                <div class="adv-section-title">2. VFS 磁碟快取與切片讀取（解決點擊/預覽凍結）</div>
+                <div class="adv-grid">
+                  <div class="adv-field">
+                    <label class="adv-label" title="--vfs-cache-max-size">磁碟快取配額上限</label>
+                    <select
+                      v-model="remoteConfigs[remote.name].mountOptions.vfsCacheMaxSize"
+                      @change="onCustomMountOptionChange(remote.name)"
+                      class="adv-select"
+                    >
+                      <option value="50G">50 GB (推薦, 流暢預覽/播放)</option>
+                      <option value="20G">20 GB</option>
+                      <option value="100G">100 GB</option>
+                      <option value="off">無限制 (off)</option>
+                    </select>
+                  </div>
+
+                  <div class="adv-field">
+                    <label class="adv-label" title="--vfs-cache-max-age">快取檔案保存上限</label>
+                    <select
+                      v-model="remoteConfigs[remote.name].mountOptions.vfsCacheMaxAge"
+                      @change="onCustomMountOptionChange(remote.name)"
+                      class="adv-select"
+                    >
+                      <option value="24h">24 小時 (推薦)</option>
+                      <option value="48h">48 小時</option>
+                      <option value="7d">7 天</option>
+                      <option value="1h">1 小時</option>
+                    </select>
+                  </div>
+
+                  <div class="adv-field">
+                    <label class="adv-label" title="--vfs-read-chunk-size">漸進式切片讀取起始大小</label>
+                    <select
+                      v-model="remoteConfigs[remote.name].mountOptions.vfsReadChunkSize"
+                      @change="onCustomMountOptionChange(remote.name)"
+                      class="adv-select"
+                    >
+                      <option value="64M">64 MB (推薦)</option>
+                      <option value="32M">32 MB</option>
+                      <option value="128M">128 MB (原生)</option>
+                      <option value="0">0 (關閉切片)</option>
+                    </select>
+                  </div>
+
+                  <div class="adv-field">
+                    <label class="adv-label" title="--vfs-read-chunk-size-limit">切片翻倍上限</label>
+                    <select
+                      v-model="remoteConfigs[remote.name].mountOptions.vfsReadChunkSizeLimit"
+                      @change="onCustomMountOptionChange(remote.name)"
+                      class="adv-select"
+                    >
+                      <option value="1G">1 GB (推薦)</option>
+                      <option value="2G">2 GB</option>
+                      <option value="off">無上限 (off)</option>
+                    </select>
+                  </div>
+
+                  <div class="adv-field-toggle">
+                    <div class="toggle-info">
+                      <span class="adv-toggle-label" title="--drive-pacer-min-sleep 10ms --drive-pacer-burst 200">Google Drive Pacer 節流調校</span>
+                      <span class="adv-toggle-desc">將 API 間隔縮減至 10ms、連發量提升至 200，突破 Google Drive 預設 API 頻率限制</span>
+                    </div>
+                    <button
+                      type="button"
+                      class="toggle-switch-sm"
+                      :class="{ active: remoteConfigs[remote.name].mountOptions.enableDrivePacer }"
+                      @click="remoteConfigs[remote.name].mountOptions.enableDrivePacer = !remoteConfigs[remote.name].mountOptions.enableDrivePacer; onCustomMountOptionChange(remote.name)"
+                    >
+                      <span class="toggle-slider-sm"></span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 3. 背景非阻塞預熱與進階 Flags -->
+                <div class="adv-section-title">3. 背景預熱與進階旗標</div>
+                <div class="adv-grid">
+                  <div class="adv-field-toggle">
+                    <div class="toggle-info">
+                      <span class="adv-toggle-label">掛載後背景自動預熱 (Warm-up)</span>
+                      <span class="adv-toggle-desc">掛載就緒後在後台自動非阻塞執行 vfs/refresh recursive=true，預先建立快取避免初次點入資料夾等待</span>
+                    </div>
+                    <button
+                      type="button"
+                      class="toggle-switch-sm"
+                      :class="{ active: remoteConfigs[remote.name].mountOptions.warmUp }"
+                      @click="remoteConfigs[remote.name].mountOptions.warmUp = !remoteConfigs[remote.name].mountOptions.warmUp; onCustomMountOptionChange(remote.name)"
+                    >
+                      <span class="toggle-slider-sm"></span>
+                    </button>
+                  </div>
+
+                  <div class="adv-field adv-field-full">
+                    <label class="adv-label">自訂額外 Rclone 命令列旗標 (CLI Flags)</label>
+                    <input
+                      type="text"
+                      v-model="remoteConfigs[remote.name].mountOptions.extraFlags"
+                      @input="onCustomMountOptionChange(remote.name)"
+                      class="adv-input"
+                      placeholder="例如: --transfers 8 --buffer-size 32M"
+                    />
+                  </div>
+                </div>
+
+                <div class="adv-panel-footer">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click="applyPresetToRemote(remote.name, 'fast')"
+                  >
+                    <Zap class="btn-icon" />
+                    <span>重設為極速推薦值</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Mounted Status Badge -->
+              <div class="mounted-perf-badge" v-if="remote.is_mounted">
+                <Zap class="perf-badge-icon" />
+                <span>掛載效能：{{ (remoteConfigs[remote.name]?.mountPreset || 'fast') === 'fast' ? '⚡ 極速推薦 (72h 快取 + 背景預熱)' : remoteConfigs[remote.name]?.mountPreset === 'default' ? '⚖️ 官方平衡' : '🛠️ 自訂進階' }}</span>
               </div>
 
               <div class="checkbox-row" @click="toggleRemoteAutoMount(remote.name)">
@@ -3557,6 +3919,20 @@ onUnmounted(() => {
                 <span class="toggle-slider"></span>
               </button>
             </div>
+          </div>
+
+          <div class="setting-group">
+            <label class="group-title">預設雲端掛載效能策略 (Global Mount Preset)</label>
+            <p class="group-desc">新加入或未個別微調的雲端硬碟掛載時，預設套用的快取效能策略</p>
+            <select
+              v-model="globalMountPreset"
+              @change="saveGlobalMountPreset(globalMountPreset)"
+              class="modal-input"
+            >
+              <option value="fast">⚡ 極速推薦 (Fast: 72h 快取, 10m 屬性, 50G 磁碟快取, 背景預熱)</option>
+              <option value="default">⚖️ 官方平衡 (Default: 5m 目錄快取, 1s 屬性, 關閉背景預熱)</option>
+              <option value="custom">🛠️ 自訂進階 (Custom)</option>
+            </select>
           </div>
 
           <div class="setting-group">
@@ -6207,5 +6583,302 @@ onUnmounted(() => {
   .btn-text-hide-sm {
     display: none;
   }
+}
+
+/* ==========================================================================
+   MOUNT PERFORMANCE TUNING & PRESETS STYLES
+   ========================================================================== */
+.perf-preset-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.btn-toggle-adv {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  color: var(--accent-cyan);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-toggle-adv:hover,
+.btn-toggle-adv.active {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: var(--accent-cyan);
+  color: #ffffff;
+}
+
+.btn-adv-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.btn-chevron-icon {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.2s ease;
+}
+
+.btn-chevron-icon.rotated {
+  transform: rotate(180deg);
+}
+
+.preset-pill-group {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.preset-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  background: var(--bg-btn-secondary);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.preset-pill:hover {
+  background: var(--bg-btn-secondary-hover);
+  color: var(--text-main);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.preset-pill.active {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+}
+
+.preset-pill .pill-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.preset-hint-box {
+  background: rgba(0, 0, 0, 0.2);
+  border-left: 3px solid var(--border-subtle);
+  padding: 6px 10px;
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.preset-hint-box p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.hint-fast {
+  color: #38bdf8;
+  border-left-color: #38bdf8 !important;
+}
+
+.hint-default {
+  color: var(--text-secondary);
+}
+
+.hint-custom {
+  color: #a78bfa;
+}
+
+/* Advanced Options Accordion Panel */
+.advanced-opts-panel {
+  background: rgba(10, 15, 26, 0.6);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  margin-top: 8px;
+  margin-bottom: 12px;
+  animation: slideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.adv-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.panel-title-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.adv-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-top: 10px;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.adv-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 10px;
+  margin-bottom: 6px;
+}
+
+.adv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.adv-field-full {
+  grid-column: 1 / -1;
+}
+
+.adv-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.adv-select,
+.adv-input {
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font-size: 11px;
+  padding: 5px 8px;
+  width: 100%;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.adv-select:focus,
+.adv-input:focus {
+  border-color: var(--accent-cyan);
+}
+
+.adv-field-toggle {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 10px;
+}
+
+.adv-toggle-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.adv-toggle-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
+.toggle-switch-sm {
+  width: 32px;
+  height: 18px;
+  background: var(--bg-toggle);
+  border-radius: 9px;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: background-color 0.2s ease;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.toggle-switch-sm.active {
+  background: var(--accent-emerald);
+}
+
+.toggle-slider-sm {
+  width: 14px;
+  height: 14px;
+  background: #ffffff;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.2s ease;
+}
+
+.toggle-switch-sm.active .toggle-slider-sm {
+  transform: translateX(14px);
+}
+
+.adv-panel-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-subtle);
+}
+
+/* Mounted Status Badge */
+.mounted-perf-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+}
+
+.perf-badge-icon {
+  width: 12px;
+  height: 12px;
+  color: #38bdf8;
 }
 </style>

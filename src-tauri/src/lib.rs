@@ -16,6 +16,9 @@ use tauri::{
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+mod mount_options;
+pub use mount_options::MountPerformanceOptions;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvironmentStatus {
     pub rclone_found: bool,
@@ -40,6 +43,7 @@ pub struct MountInstance {
     pub drive_letter: String,
     pub pid: u32,
     pub remote_type: Option<String>,
+    pub rc_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -710,6 +714,7 @@ fn mount_remote(
     cache_mode: Option<String>,
     read_only: Option<bool>,
     remote_type: Option<String>,
+    mount_options: Option<MountPerformanceOptions>,
 ) -> Result<MountInstance, String> {
     let exe = resolve_rclone_path(rclone_path);
 
@@ -727,7 +732,10 @@ fn mount_remote(
     }
 
     let v_name = volname.unwrap_or_else(|| remote.clone());
-    let c_mode = cache_mode.unwrap_or_else(|| "full".to_string());
+    
+    // Resolve mount performance options (Preset + Env + Config file)
+    let final_opts = MountPerformanceOptions::resolve(mount_options, cache_mode);
+    let effective_cache_mode = final_opts.vfs_cache_mode.clone().unwrap_or_else(|| "full".to_string());
 
     // Auto-heal onedrive drive_id if missing before mounting
     let _ = auto_heal_onedrive_config(&exe, &remote);
@@ -737,7 +745,7 @@ fn mount_remote(
     cmd.arg(format!("{}:", remote));
     cmd.arg(format!("{}:", clean_letter));
     cmd.arg("--vfs-cache-mode");
-    cmd.arg(&c_mode);
+    cmd.arg(&effective_cache_mode);
     cmd.arg("--volname");
     cmd.arg(&v_name);
     cmd.arg("--network-mode"); // Always mount as Windows network drive for 100% stability without Admin UAC!
@@ -745,6 +753,9 @@ fn mount_remote(
     if read_only.unwrap_or(false) {
         cmd.arg("--read-only");
     }
+
+    // Apply all fine-tuned options (dir/attr cache, VFS chunking, Google Drive Pacer, Warm-up RC)
+    let (do_warmup, rc_port) = final_opts.apply_to_command(&mut cmd, remote_type.as_deref());
 
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd.stderr(Stdio::piped());
@@ -786,6 +797,13 @@ fn mount_remote(
         return Err(format!("掛載逾時，磁碟機 {clean_letter}: 未能及時就緒。請確認 WinFsp 正常運行。"));
     }
 
+    // Non-blocking Warm-up in background if enabled
+    if do_warmup {
+        if let Some(port) = rc_port {
+            MountPerformanceOptions::trigger_background_warmup(exe.clone(), port);
+        }
+    }
+
     // Set Windows drive icon in Explorer
     let r_type = remote_type.clone().unwrap_or_else(|| "default".to_string());
     set_windows_drive_icon(&clean_letter, &r_type, Some(&v_name));
@@ -795,12 +813,21 @@ fn mount_remote(
         drive_letter: clean_letter,
         pid,
         remote_type,
+        rc_port,
     };
 
     let mut mounts = state.mounts.lock().unwrap();
     mounts.insert(remote, instance.clone());
 
     Ok(instance)
+}
+
+#[tauri::command]
+fn get_default_mount_options(preset: Option<String>) -> Result<MountPerformanceOptions, String> {
+    match preset.as_deref() {
+        Some("default") => Ok(MountPerformanceOptions::default_preset()),
+        _ => Ok(MountPerformanceOptions::fast_preset()),
+    }
 }
 
 #[tauri::command]
@@ -1613,6 +1640,7 @@ pub fn run() {
             get_app_settings,
             save_app_settings,
             apply_mounted_drive_icons,
+            get_default_mount_options,
             auto_install_rclone,
             auto_install_winfsp,
             download_and_install_update,
