@@ -34,3 +34,26 @@
 ### 3. 🔧 系統與體驗改進
 - **版本號升級為 v1.6.1**：全域版號統一更新（Tauri, Cargo, Vue）。
 - **遠端命名防呆保護**：建立或更名時自動過濾特殊無效字元（`: / \ [ ] * ? < > | "`）。
+
+---
+
+## 🔒 檔案校驗雜湊值 (SHA-256 Checksums)
+
+為確保您下載的安裝檔為官方發布且未受任何第三方竄改，請比對以下 SHA-256 雜湊值：
+
+| 檔案名稱 | SHA-256 雜湊值 |
+| :--- | :--- |
+| `RcloneDrive_v1.6.1_x64_Setup.exe` | `68ec83ba3991cd0ca6e708835646b54b183ca55c6a22156ccedf978cb43ffa3e` |
+| `RcloneDrive_v1.6.1_Portable_x64.exe` | `a6e6544ae1d67c59b997394f19aed2872802436537e10f57f7940eccada5a9c7` |
+| `RcloneDrive_v1.6.1_x64.msi` | `24284ad936f4cb85ca326b33010060c7604ae8df2e843465b2648b31ba9d8639` |
+
+---
+
+## 🛡️ 首次下載與防毒軟體提示說明
+
+若您在下載或執行時遇到防毒軟體（如賽門鐵克 Symantec Endpoint Protection、趨勢科技）提示「資訊結果不明」、「極少使用者」、「極新」或 Windows Defender SmartScreen 提示：
+1. **解除提示**：
+   - Symantec：點選 **「允許此檔案」**。
+   - Windows SmartScreen：點選 **「其他資訊」** ➔ **「仍要執行」**。
+2. **雜湊比對驗證**：在 PowerShell 執行 `Get-FileHash <檔案路徑> -Algorithm SHA256`，比對輸出與上方 Checksum 一致，即可 100% 確保安全性。
+
